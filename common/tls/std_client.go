@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/common/tlsfragment"
+	tf "github.com/sagernet/sing-box/common/tlsfragment"
 	"github.com/sagernet/sing-box/common/tlsspoof"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
@@ -29,6 +29,7 @@ type STDClientConfig struct {
 	serverName            string
 	disableSNI            bool
 	verifyServerName      bool
+	certificatePinSHA256  []byte
 	handshakeTimeout      time.Duration
 	fragment              bool
 	fragmentFallbackDelay time.Duration
@@ -43,6 +44,9 @@ func (c *STDClientConfig) ServerName() string {
 
 func (c *STDClientConfig) SetServerName(serverName string) {
 	c.serverName = serverName
+	if len(c.certificatePinSHA256) > 0 {
+		c.config.VerifyPeerCertificate = certificatePinSHA256Verifier(c.certificatePinSHA256, serverName, c.config.Time)
+	}
 	if c.disableSNI {
 		c.config.ServerName = ""
 		if c.verifyServerName {
@@ -93,6 +97,7 @@ func (c *STDClientConfig) Clone() Config {
 		serverName:            c.serverName,
 		disableSNI:            c.disableSNI,
 		verifyServerName:      c.verifyServerName,
+		certificatePinSHA256:  c.certificatePinSHA256,
 		handshakeTimeout:      c.handshakeTimeout,
 		fragment:              c.fragment,
 		fragmentFallbackDelay: c.fragmentFallbackDelay,
@@ -135,7 +140,13 @@ func newSTDClient(ctx context.Context, logger logger.ContextLogger, serverAddres
 	} else if options.DisableSNI {
 		tlsConfig.InsecureSkipVerify = true
 	}
-	if len(options.CertificateSHA256) > 0 || len(options.CertificatePublicKeySHA256) > 0 {
+	certificatePinSHA256, err := parseCertificatePinSHA256(options)
+	if err != nil {
+		return nil, err
+	}
+	if len(certificatePinSHA256) > 0 {
+		tlsConfig.InsecureSkipVerify = true
+	} else if len(options.CertificateSHA256) > 0 || len(options.CertificatePublicKeySHA256) > 0 {
 		if len(options.Certificate) > 0 || options.CertificatePath != "" {
 			return nil, E.New("certificate_sha256 or certificate_public_key_sha256 is conflict with certificate or certificate_path")
 		}
@@ -237,7 +248,8 @@ func newSTDClient(ctx context.Context, logger logger.ContextLogger, serverAddres
 		config:                &tlsConfig,
 		serverName:            serverName,
 		disableSNI:            options.DisableSNI,
-		verifyServerName:      options.DisableSNI && !options.Insecure,
+		verifyServerName:      options.DisableSNI && !options.Insecure && len(certificatePinSHA256) == 0,
+		certificatePinSHA256:  certificatePinSHA256,
 		handshakeTimeout:      handshakeTimeout,
 		fragment:              options.Fragment,
 		fragmentFallbackDelay: time.Duration(options.FragmentFallbackDelay),

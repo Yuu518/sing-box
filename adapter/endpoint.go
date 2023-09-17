@@ -28,6 +28,7 @@ type EndpointRegistry interface {
 type EndpointManager interface {
 	Lifecycle
 	Endpoints() []Endpoint
+	StartEndpoint(endpoint Endpoint) error
 	Get(tag string) (Endpoint, bool)
 	Remove(tag string) error
 	Create(ctx context.Context, router Router, logger log.ContextLogger, tag string, endpointType string, options any) error
