@@ -3,6 +3,7 @@ package outbound
 import (
 	"context"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -23,6 +24,8 @@ type Manager struct {
 	outboundByTag           map[string]adapter.Outbound
 	defaultOutbound         adapter.Outbound
 	defaultOutboundFallback func() (adapter.Outbound, error)
+	providerFallback        adapter.Outbound
+	providerFallbackFactory func(tag string) (adapter.Outbound, error)
 }
 
 func NewManager(registry adapter.OutboundRegistry, endpoint adapter.EndpointManager, defaultTag string) *Manager {
@@ -36,6 +39,38 @@ func NewManager(registry adapter.OutboundRegistry, endpoint adapter.EndpointMana
 
 func (m *Manager) Initialize(defaultOutboundFallback func() (adapter.Outbound, error)) {
 	m.defaultOutboundFallback = defaultOutboundFallback
+}
+
+func (m *Manager) InitializeProviderFallback(factory func(tag string) (adapter.Outbound, error)) {
+	m.providerFallbackFactory = factory
+}
+
+func (m *Manager) ProviderFallback() (adapter.Outbound, error) {
+	m.access.Lock()
+	defer m.access.Unlock()
+	if m.providerFallback != nil && m.outboundByTag[m.providerFallback.Tag()] == m.providerFallback {
+		return m.providerFallback, nil
+	}
+	if m.providerFallbackFactory == nil {
+		return nil, E.New("provider fallback is not initialized")
+	}
+	const baseTag = "__provider_fallback__"
+	tag := baseTag
+	for suffix := 2; ; suffix++ {
+		_, endpointExists := m.endpoint.Get(tag)
+		if m.outboundByTag[tag] == nil && !endpointExists {
+			break
+		}
+		tag = baseTag + "-" + strconv.Itoa(suffix)
+	}
+	fallback, err := m.providerFallbackFactory(tag)
+	if err != nil {
+		return nil, err
+	}
+	m.providerFallback = fallback
+	m.outbounds = append(m.outbounds, fallback)
+	m.outboundByTag[tag] = fallback
+	return fallback, nil
 }
 
 func (m *Manager) Start(stage adapter.StartStage, scope *adapter.Scope) error {
