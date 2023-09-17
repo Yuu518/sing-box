@@ -487,7 +487,7 @@ func (r *NetworkManager) ResetNetwork(ctx context.Context) {
 		}
 	}
 
-	for _, outbound := range r.outbound.Outbounds() {
+	for _, outbound := range append(slices.Clip(r.outbound.Outbounds()), adapter.ProviderOutbounds(r.ctx)...) {
 		listener, isListener := outbound.(adapter.InterfaceUpdateListener)
 		if isListener {
 			listener.InterfaceUpdated(ctx)
@@ -514,7 +514,7 @@ func (r *NetworkManager) FlushSystemDNSCache() {
 
 func (r *NetworkManager) ReleaseMemory(ctx context.Context) {
 	r.ResetNetwork(ctx)
-	for _, outbound := range r.outbound.Outbounds() {
+	for _, outbound := range append(slices.Clip(r.outbound.Outbounds()), adapter.ProviderOutbounds(r.ctx)...) {
 		keeper, isKeeper := outbound.(adapter.IdleConnectionKeeper)
 		if isKeeper {
 			keeper.CloseIdleConnections()

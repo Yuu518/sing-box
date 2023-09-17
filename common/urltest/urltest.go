@@ -21,16 +21,86 @@ import (
 	"github.com/sagernet/sing/common/observable"
 )
 
+const retiredProviderOutboundTTL = 5 * time.Minute
+
 type HistoryStorage struct {
-	access       sync.RWMutex
-	delayHistory map[string]*adapter.URLTestHistory
-	updateHooks  []*observable.Subscriber[struct{}]
+	access                   sync.RWMutex
+	delayHistory             map[string]*adapter.URLTestHistory
+	providerHistory          map[adapter.Outbound]*adapter.URLTestHistory
+	providerOutbounds        map[adapter.Outbound]struct{}
+	retiredProviderOutbounds map[adapter.Outbound]time.Time
+	updateHooks              []*observable.Subscriber[struct{}]
 }
 
 func NewHistoryStorage() *HistoryStorage {
 	return &HistoryStorage{
-		delayHistory: make(map[string]*adapter.URLTestHistory),
+		delayHistory:             make(map[string]*adapter.URLTestHistory),
+		providerHistory:          make(map[adapter.Outbound]*adapter.URLTestHistory),
+		providerOutbounds:        make(map[adapter.Outbound]struct{}),
+		retiredProviderOutbounds: make(map[adapter.Outbound]time.Time),
 	}
+}
+
+func (s *HistoryStorage) AddProviderOutbound(outbound adapter.Outbound) {
+	s.access.Lock()
+	defer s.access.Unlock()
+	s.providerOutbounds[outbound] = struct{}{}
+}
+
+func (s *HistoryStorage) RemoveProviderOutbound(outbound adapter.Outbound) {
+	s.access.Lock()
+	defer s.access.Unlock()
+	if _, loaded := s.providerOutbounds[outbound]; !loaded {
+		return
+	}
+	delete(s.providerOutbounds, outbound)
+	delete(s.providerHistory, outbound)
+	now := time.Now()
+	for retired, removedAt := range s.retiredProviderOutbounds {
+		if now.Sub(removedAt) > retiredProviderOutboundTTL {
+			delete(s.retiredProviderOutbounds, retired)
+		}
+	}
+	s.retiredProviderOutbounds[outbound] = now
+	s.notifyUpdated()
+}
+
+func (s *HistoryStorage) LoadURLTestHistoryForOutbound(outbound adapter.Outbound) *adapter.URLTestHistory {
+	if s == nil || outbound == nil {
+		return nil
+	}
+	s.access.RLock()
+	defer s.access.RUnlock()
+	if _, loaded := s.providerOutbounds[outbound]; loaded {
+		return s.providerHistory[outbound]
+	}
+	if _, retired := s.retiredProviderOutbounds[outbound]; retired {
+		return nil
+	}
+	return s.delayHistory[outbound.Tag()]
+}
+
+func (s *HistoryStorage) StoreURLTestHistoryForOutbound(outbound adapter.Outbound, history *adapter.URLTestHistory) bool {
+	s.access.Lock()
+	defer s.access.Unlock()
+	if _, loaded := s.providerOutbounds[outbound]; loaded {
+		if history == nil {
+			delete(s.providerHistory, outbound)
+		} else {
+			s.providerHistory[outbound] = history
+		}
+	} else {
+		if _, retired := s.retiredProviderOutbounds[outbound]; retired {
+			return false
+		}
+		if history == nil {
+			delete(s.delayHistory, outbound.Tag())
+		} else {
+			s.delayHistory[outbound.Tag()] = history
+		}
+	}
+	s.notifyUpdated()
+	return true
 }
 
 func (s *HistoryStorage) AddUpdateHook(hook *observable.Subscriber[struct{}]) {
