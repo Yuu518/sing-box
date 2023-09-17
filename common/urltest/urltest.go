@@ -22,15 +22,58 @@ import (
 )
 
 type HistoryStorage struct {
-	access       sync.RWMutex
-	delayHistory map[string]*adapter.URLTestHistory
-	updateHooks  []*observable.Subscriber[struct{}]
+	access           sync.RWMutex
+	delayHistory     map[string]*adapter.URLTestHistory
+	currentOutbounds map[string]adapter.Outbound
+	updateHooks      []*observable.Subscriber[struct{}]
 }
 
 func NewHistoryStorage() *HistoryStorage {
 	return &HistoryStorage{
-		delayHistory: make(map[string]*adapter.URLTestHistory),
+		delayHistory:     make(map[string]*adapter.URLTestHistory),
+		currentOutbounds: make(map[string]adapter.Outbound),
 	}
+}
+
+// SetCurrentOutbound invalidates results from a replaced provider instance.
+// Keeping the owner beside the history makes publishing a result atomic with
+// replacement, including when provider and group checks overlap.
+func (s *HistoryStorage) SetCurrentOutbound(outbound adapter.Outbound) {
+	s.access.Lock()
+	defer s.access.Unlock()
+	if s.currentOutbounds[outbound.Tag()] == outbound {
+		return
+	}
+	s.currentOutbounds[outbound.Tag()] = outbound
+	delete(s.delayHistory, outbound.Tag())
+	s.notifyUpdated()
+}
+
+func (s *HistoryStorage) RemoveCurrentOutbound(outbound adapter.Outbound) {
+	s.access.Lock()
+	defer s.access.Unlock()
+	if s.currentOutbounds[outbound.Tag()] != outbound {
+		return
+	}
+	// Retain a tombstone so an in-flight result cannot restore the removed node.
+	s.currentOutbounds[outbound.Tag()] = nil
+	delete(s.delayHistory, outbound.Tag())
+	s.notifyUpdated()
+}
+
+func (s *HistoryStorage) StoreURLTestHistoryForOutbound(outbound adapter.Outbound, history *adapter.URLTestHistory) bool {
+	s.access.Lock()
+	defer s.access.Unlock()
+	if current, tracked := s.currentOutbounds[outbound.Tag()]; tracked && current != outbound {
+		return false
+	}
+	if history == nil {
+		delete(s.delayHistory, outbound.Tag())
+	} else {
+		s.delayHistory[outbound.Tag()] = history
+	}
+	s.notifyUpdated()
+	return true
 }
 
 func (s *HistoryStorage) AddUpdateHook(hook *observable.Subscriber[struct{}]) {
