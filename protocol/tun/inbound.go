@@ -342,7 +342,7 @@ func (t *Inbound) Start(stage adapter.StartStage, scope *adapter.Scope) error {
 			((C.IsLinux && !t.tunOptions.GSO) || (C.IsDarwin && !t.tunOptions.EXP_MultiPendingPackets)) {
 			outboundManager := service.FromContext[adapter.OutboundManager](t.ctx)
 			endpointManager := service.FromContext[adapter.EndpointManager](t.ctx)
-			for _, outbound := range outboundManager.Outbounds() {
+			for _, outbound := range slices.Concat(outboundManager.Outbounds(), adapter.ProviderOutbounds(t.ctx)) {
 				if flowOutbound, isFlowOutbound := outbound.(adapter.FlowOutbound); isFlowOutbound && flowOutbound.PreMatchFlow(N.NetworkTCP, netip.Addr{}) == adapter.PreMatchFlow {
 					if C.IsLinux {
 						t.tunOptions.GSO = true
