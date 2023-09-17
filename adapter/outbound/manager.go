@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -31,6 +32,8 @@ type Manager struct {
 	dependByTag             map[string][]string
 	defaultOutbound         adapter.Outbound
 	defaultOutboundFallback func() (adapter.Outbound, error)
+	providerFallback        adapter.Outbound
+	providerFallbackFactory func(tag string) (adapter.Outbound, error)
 }
 
 func NewManager(logger logger.ContextLogger, registry adapter.OutboundRegistry, endpoint adapter.EndpointManager, defaultTag string) *Manager {
@@ -46,6 +49,38 @@ func NewManager(logger logger.ContextLogger, registry adapter.OutboundRegistry, 
 
 func (m *Manager) Initialize(defaultOutboundFallback func() (adapter.Outbound, error)) {
 	m.defaultOutboundFallback = defaultOutboundFallback
+}
+
+func (m *Manager) InitializeProviderFallback(factory func(tag string) (adapter.Outbound, error)) {
+	m.providerFallbackFactory = factory
+}
+
+func (m *Manager) ProviderFallback() (adapter.Outbound, error) {
+	m.access.Lock()
+	defer m.access.Unlock()
+	if m.providerFallback != nil && m.outboundByTag[m.providerFallback.Tag()] == m.providerFallback {
+		return m.providerFallback, nil
+	}
+	if m.providerFallbackFactory == nil {
+		return nil, E.New("provider fallback is not initialized")
+	}
+	const baseTag = "__provider_fallback__"
+	tag := baseTag
+	for suffix := 2; ; suffix++ {
+		_, endpointExists := m.endpoint.Get(tag)
+		if m.outboundByTag[tag] == nil && !endpointExists {
+			break
+		}
+		tag = baseTag + "-" + strconv.Itoa(suffix)
+	}
+	fallback, err := m.providerFallbackFactory(tag)
+	if err != nil {
+		return nil, err
+	}
+	m.providerFallback = fallback
+	m.outbounds = append(m.outbounds, fallback)
+	m.outboundByTag[tag] = fallback
+	return fallback, nil
 }
 
 func (m *Manager) Start(stage adapter.StartStage) error {
@@ -272,6 +307,7 @@ func (m *Manager) Create(ctx context.Context, router adapter.Router, logger log.
 			err = adapter.LegacyStart(outbound, stage)
 			done()
 			if err != nil {
+				common.Close(outbound)
 				return E.Cause(err, stage, " ", name)
 			}
 		}
@@ -282,6 +318,7 @@ func (m *Manager) Create(ctx context.Context, router adapter.Router, logger log.
 		if m.started {
 			err = common.Close(existsOutbound)
 			if err != nil {
+				common.Close(outbound)
 				return E.Cause(err, "close outbound/", existsOutbound.Type(), "[", existsOutbound.Tag(), "]")
 			}
 		}

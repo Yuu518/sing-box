@@ -602,25 +602,20 @@ func (s *StartedService) readGroups() *Groups {
 		g.Tag = iGroup.Tag()
 		g.Type = iGroup.Type()
 		_, g.Selectable = iGroup.(*group.Selector)
-		if selected := iGroup.Selected(N.NetworkTCP); selected != nil {
-			g.Selected = selected.Tag()
-		}
+		g.Selected = iGroup.SelectedTag(N.NetworkTCP)
 		if boxService.cacheFile != nil {
 			if isExpand, loaded := boxService.cacheFile.LoadGroupExpand(g.Tag); loaded {
 				g.IsExpand = isExpand
 			}
 		}
 
-		for _, itemTag := range iGroup.All() {
-			itemOutbound, isLoaded := boxService.outboundManager.Outbound(itemTag)
-			if !isLoaded {
-				continue
-			}
-
+		itemTags, itemOutbounds := group.Members(iGroup)
+		for i, itemTag := range itemTags {
+			itemOutbound := itemOutbounds[i]
 			var item GroupItem
 			item.Tag = itemTag
 			item.Type = itemOutbound.Type()
-			if history := historyStorage.LoadURLTestHistory(group.RealTag(itemOutbound, N.NetworkTCP)); history != nil {
+			if history := historyStorage.LoadURLTestHistoryForOutbound(group.RealOutbound(itemOutbound, N.NetworkTCP)); history != nil {
 				item.UrlTestTime = history.Time.Unix()
 				item.UrlTestDelay = int32(history.Delay)
 			}
@@ -725,6 +720,9 @@ func (s *StartedService) URLTest(ctx context.Context, request *URLTestRequest) (
 	outboundTag := request.OutboundTag
 	outbound, isLoaded := boxService.outboundManager.Outbound(outboundTag)
 	if !isLoaded {
+		outbound, isLoaded = group.FindMember(boxService.outboundManager, outboundTag)
+	}
+	if !isLoaded {
 		return nil, status.Error(codes.NotFound, "outbound not found: "+outboundTag)
 	}
 	historyStorage := boxService.urlTestHistoryStorage
@@ -733,18 +731,15 @@ func (s *StartedService) URLTest(ctx context.Context, request *URLTestRequest) (
 	if isURLTest {
 		go urlTest.CheckOutbounds()
 	} else if isOutboundGroup {
-		outbounds := common.FilterNotNil(common.Map(outboundGroup.All(), func(it string) adapter.Outbound {
-			itOutbound, _ := boxService.outboundManager.Outbound(it)
-			return itOutbound
-		}))
-		go group.URLTestOutbounds(boxService.ctx, boxService.outboundManager, historyStorage, boxService.logFactory.Logger(), outbounds, "", 0, true)
+		tags, outbounds := group.Members(outboundGroup)
+		go group.URLTestOutbounds(boxService.ctx, boxService.outboundManager, historyStorage, boxService.logFactory.Logger(), tags, outbounds, "", 0, true)
 	} else {
 		go func() {
 			t, err := urltest.URLTest(boxService.ctx, "", outbound)
 			if err != nil {
-				historyStorage.DeleteURLTestHistory(outboundTag)
+				historyStorage.StoreURLTestHistoryForOutbound(outbound, nil)
 			} else {
-				historyStorage.StoreURLTestHistory(outboundTag, &adapter.URLTestHistory{
+				historyStorage.StoreURLTestHistoryForOutbound(outbound, &adapter.URLTestHistory{
 					Time:  time.Now(),
 					Delay: t,
 				})
@@ -1182,7 +1177,7 @@ func (s *StartedService) SubscribeOutbounds(_ *emptypb.Empty, server grpc.Server
 					Tag:  ob.Tag(),
 					Type: ob.Type(),
 				}
-				if history := historyStorage.LoadURLTestHistory(group.RealTag(ob, N.NetworkTCP)); history != nil {
+				if history := historyStorage.LoadURLTestHistoryForOutbound(group.RealOutbound(ob, N.NetworkTCP)); history != nil {
 					item.UrlTestTime = history.Time.Unix()
 					item.UrlTestDelay = int32(history.Delay)
 				}
@@ -1193,7 +1188,7 @@ func (s *StartedService) SubscribeOutbounds(_ *emptypb.Empty, server grpc.Server
 					Tag:  ep.Tag(),
 					Type: ep.Type(),
 				}
-				if history := historyStorage.LoadURLTestHistory(group.RealTag(ep, N.NetworkTCP)); history != nil {
+				if history := historyStorage.LoadURLTestHistoryForOutbound(group.RealOutbound(ep, N.NetworkTCP)); history != nil {
 					item.UrlTestTime = history.Time.Unix()
 					item.UrlTestDelay = int32(history.Delay)
 				}

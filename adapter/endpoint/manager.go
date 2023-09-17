@@ -131,6 +131,7 @@ func (m *Manager) Create(ctx context.Context, router adapter.Router, logger log.
 			err = adapter.LegacyStart(endpoint, stage)
 			done()
 			if err != nil {
+				endpoint.Close()
 				return E.Cause(err, stage, " ", name)
 			}
 		}
@@ -139,6 +140,7 @@ func (m *Manager) Create(ctx context.Context, router adapter.Router, logger log.
 		if m.started {
 			err = existsEndpoint.Close()
 			if err != nil {
+				endpoint.Close()
 				return E.Cause(err, "close endpoint/", existsEndpoint.Type(), "[", existsEndpoint.Tag(), "]")
 			}
 		}

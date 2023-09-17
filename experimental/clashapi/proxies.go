@@ -48,6 +48,9 @@ func findProxyByName(server *Server) func(next http.Handler) http.Handler {
 			name := r.Context().Value(CtxKeyProxyName).(string)
 			proxy, exist := server.outbound.Outbound(name)
 			if !exist {
+				proxy, exist = findProviderProxy(server, name)
+			}
+			if !exist {
 				render.Status(r, http.StatusNotFound)
 				render.JSON(w, r, ErrNotFound)
 				return
@@ -58,7 +61,58 @@ func findProxyByName(server *Server) func(next http.Handler) http.Handler {
 	}
 }
 
+type namedProxy struct {
+	name     string
+	outbound adapter.Outbound
+}
+
+func providerProxies(server *Server) []namedProxy {
+	var result []namedProxy
+	used := make(map[string]bool)
+	add := func(name string, detour adapter.Outbound) {
+		if name == "" || used[name] {
+			return
+		}
+		if _, loaded := server.outbound.Outbound(name); loaded {
+			return
+		}
+		used[name] = true
+		result = append(result, namedProxy{name, detour})
+	}
+	for _, detour := range server.outbound.Outbounds() {
+		outboundGroup, isGroup := detour.(adapter.OutboundGroup)
+		if !isGroup {
+			continue
+		}
+		tags, members := group.Members(outboundGroup)
+		for i := range tags {
+			add(tags[i], members[i])
+		}
+	}
+	if server.provider != nil {
+		for _, provider := range server.provider.Providers() {
+			for _, detour := range provider.Outbounds() {
+				add(detour.Tag(), detour)
+			}
+		}
+	}
+	return result
+}
+
+func findProviderProxy(server *Server, name string) (adapter.Outbound, bool) {
+	for _, it := range providerProxies(server) {
+		if it.name == name {
+			return it.outbound, true
+		}
+	}
+	return nil, false
+}
+
 func proxyInfo(server *Server, detour adapter.Outbound) *badjson.JSONObject {
+	return proxyInfoWithName(server, detour.Tag(), detour)
+}
+
+func proxyInfoWithName(server *Server, name string, detour adapter.Outbound) *badjson.JSONObject {
 	var info badjson.JSONObject
 	var clashType string
 	switch detour.Type() {
@@ -68,19 +122,16 @@ func proxyInfo(server *Server, detour adapter.Outbound) *badjson.JSONObject {
 		clashType = C.ProxyDisplayName(detour.Type())
 	}
 	info.Put("type", clashType)
-	info.Put("name", detour.Tag())
+	info.Put("name", name)
 	info.Put("udp", common.Contains(detour.Network(), N.NetworkUDP))
-	delayHistory := server.urlTestHistory.LoadURLTestHistory(group.RealTag(detour, N.NetworkTCP))
+	delayHistory := server.urlTestHistory.LoadURLTestHistoryForOutbound(group.RealOutbound(detour, N.NetworkTCP))
 	if delayHistory != nil {
 		info.Put("history", []*adapter.URLTestHistory{delayHistory})
 	} else {
 		info.Put("history", []*adapter.URLTestHistory{})
 	}
 	if group, isGroup := detour.(adapter.OutboundGroup); isGroup {
-		var now string
-		if selected := group.Selected(N.NetworkTCP); selected != nil {
-			now = selected.Tag()
-		}
+		now := group.SelectedTag(N.NetworkTCP)
 		info.Put("now", now)
 		info.Put("all", group.All())
 	}
@@ -134,6 +185,9 @@ func getProxies(server *Server) func(w http.ResponseWriter, r *http.Request) {
 			}
 			proxyMap.Put(tag, proxyInfo(server, detour))
 		}
+		for _, it := range providerProxies(server) {
+			proxyMap.Put(it.name, proxyInfoWithName(server, it.name, it.outbound))
+		}
 		var responseMap badjson.JSONObject
 		responseMap.Put("proxies", &proxyMap)
 		response, err := responseMap.MarshalJSON()
@@ -149,7 +203,8 @@ func getProxies(server *Server) func(w http.ResponseWriter, r *http.Request) {
 func getProxy(server *Server) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		proxy := r.Context().Value(CtxKeyProxy).(adapter.Outbound)
-		response, err := proxyInfo(server, proxy).MarshalJSON()
+		name := r.Context().Value(CtxKeyProxyName).(string)
+		response, err := proxyInfoWithName(server, name, proxy).MarshalJSON()
 		if err != nil {
 			render.Status(r, http.StatusInternalServerError)
 			render.JSON(w, r, newError(err.Error()))
@@ -188,24 +243,18 @@ func updateProxy(w http.ResponseWriter, r *http.Request) {
 	render.NoContent(w, r)
 }
 
-func groupContains(outboundManager adapter.OutboundManager, outboundGroup adapter.OutboundGroup, tag string, visited map[string]bool) bool {
-	for _, memberTag := range outboundGroup.All() {
-		if memberTag == tag {
-			return true
-		}
-		member, loaded := outboundManager.Outbound(memberTag)
-		if !loaded {
-			continue
-		}
-		if group.RealTag(member, N.NetworkTCP) == tag {
+func groupContains(outboundGroup adapter.OutboundGroup, target adapter.Outbound, visited map[adapter.Outbound]bool) bool {
+	_, members := group.Members(outboundGroup)
+	for _, member := range members {
+		if member == target || group.RealOutbound(member, N.NetworkTCP) == target {
 			return true
 		}
 		memberGroup, isGroup := member.(adapter.OutboundGroup)
-		if !isGroup || visited[memberTag] {
+		if !isGroup || visited[member] {
 			continue
 		}
-		visited[memberTag] = true
-		if groupContains(outboundManager, memberGroup, tag, visited) {
+		visited[member] = true
+		if groupContains(memberGroup, target, visited) {
 			return true
 		}
 	}
@@ -226,17 +275,21 @@ func getProxyDelay(server *Server) func(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		proxy := r.Context().Value(CtxKeyProxy).(adapter.Outbound)
+		proxy := group.RealOutbound(r.Context().Value(CtxKeyProxy).(adapter.Outbound), N.NetworkTCP)
+		if proxy == nil {
+			render.Status(r, http.StatusServiceUnavailable)
+			render.JSON(w, r, newError("An error occurred in the delay test"))
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 		defer cancel()
 
 		delay, err := urltest.URLTest(ctx, url, proxy)
 		defer func() {
-			realTag := group.RealTag(proxy, N.NetworkTCP)
 			if err != nil {
-				server.urlTestHistory.DeleteURLTestHistory(realTag)
+				server.urlTestHistory.StoreURLTestHistoryForOutbound(proxy, nil)
 			} else {
-				server.urlTestHistory.StoreURLTestHistory(realTag, &adapter.URLTestHistory{
+				server.urlTestHistory.StoreURLTestHistoryForOutbound(proxy, &adapter.URLTestHistory{
 					Time:  time.Now(),
 					Delay: delay,
 				})
@@ -246,7 +299,7 @@ func getProxyDelay(server *Server) func(w http.ResponseWriter, r *http.Request) 
 				if !isURLTestGroup {
 					continue
 				}
-				if !groupContains(server.outbound, urlTestGroup, realTag, map[string]bool{detour.Tag(): true}) {
+				if !groupContains(urlTestGroup, proxy, map[adapter.Outbound]bool{detour: true}) {
 					continue
 				}
 				urlTestGroup.PerformUpdateCheck()
