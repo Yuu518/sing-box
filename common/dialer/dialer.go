@@ -49,7 +49,12 @@ func NewWithOptions(options Options) (N.Dialer, error) {
 		if outboundManager == nil {
 			return nil, E.New("missing outbound manager")
 		}
-		dialer = NewDetour(outboundManager, dialOptions.Detour, options.DisableEmptyDirectCheck)
+		dialer = &DetourDialer{
+			outboundManager:         outboundManager,
+			scope:                   adapter.OutboundScopeFromContext(options.Context),
+			detour:                  dialOptions.Detour,
+			disableEmptyDirectCheck: options.DisableEmptyDirectCheck,
+		}
 	} else if options.DefaultOutbound {
 		outboundManager := service.FromContext[adapter.OutboundManager](options.Context)
 		if outboundManager == nil {
