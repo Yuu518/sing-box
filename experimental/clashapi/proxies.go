@@ -223,16 +223,21 @@ func getProxyDelay(server *Server) func(w http.ResponseWriter, r *http.Request) 
 		}
 
 		proxy := r.Context().Value(CtxKeyProxy).(adapter.Outbound)
+		realTag := group.RealTag(server.outbound, proxy)
+		// Pin the tested instance before dialing so a provider refresh or group
+		// selection cannot attribute this result to a different node.
+		if member, found := server.outbound.Outbound(realTag); found {
+			proxy = member
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 		defer cancel()
 
 		delay, err := urltest.URLTest(ctx, url, proxy)
 		defer func() {
-			realTag := group.RealTag(server.outbound, proxy)
 			if err != nil {
-				server.urlTestHistory.DeleteURLTestHistory(realTag)
+				server.urlTestHistory.StoreURLTestHistoryForOutbound(proxy, nil)
 			} else {
-				server.urlTestHistory.StoreURLTestHistory(realTag, &adapter.URLTestHistory{
+				server.urlTestHistory.StoreURLTestHistoryForOutbound(proxy, &adapter.URLTestHistory{
 					Time:  time.Now(),
 					Delay: delay,
 				})
