@@ -739,9 +739,9 @@ func (s *StartedService) URLTest(ctx context.Context, request *URLTestRequest) (
 		go func() {
 			t, err := urltest.URLTest(boxService.ctx, "", outbound)
 			if err != nil {
-				historyStorage.DeleteURLTestHistory(outboundTag)
+				historyStorage.StoreURLTestHistoryForOutbound(outbound, nil)
 			} else {
-				historyStorage.StoreURLTestHistory(outboundTag, &adapter.URLTestHistory{
+				historyStorage.StoreURLTestHistoryForOutbound(outbound, &adapter.URLTestHistory{
 					Time:  time.Now(),
 					Delay: t,
 				})
