@@ -28,11 +28,15 @@ var _ ServerConfigCompat = (*RealityServerConfig)(nil)
 type RealityServerConfig struct {
 	config           *utls.RealityConfig
 	handshakeTimeout time.Duration
+	rejectUnknownSNI bool
 }
 
 func NewRealityServer(ctx context.Context, logger log.ContextLogger, options option.InboundTLSOptions) (ServerConfig, error) {
 	var tlsConfig utls.RealityConfig
 
+	if options.ServerName != "" && len(options.ServerNames) > 0 {
+		return nil, E.New("server_name and server_names cannot be configured at the same time")
+	}
 	if options.CertificateProvider != nil {
 		return nil, E.New("certificate_provider is unavailable in reality")
 	}
@@ -92,7 +96,15 @@ func NewRealityServer(ctx context.Context, logger log.ContextLogger, options opt
 	tlsConfig.Type = N.NetworkTCP
 	tlsConfig.Dest = options.Reality.Handshake.ServerOptions.Build().String()
 
-	tlsConfig.ServerNames = map[string]bool{options.ServerName: true}
+	tlsConfig.ServerNames = make(map[string]bool)
+	if options.ServerName != "" {
+		tlsConfig.ServerNames[options.ServerName] = true
+	}
+	for _, name := range options.ServerNames {
+		if name != "" {
+			tlsConfig.ServerNames[name] = true
+		}
+	}
 	privateKey, err := base64.RawURLEncoding.DecodeString(options.Reality.PrivateKey)
 	if err != nil {
 		return nil, E.Cause(err, "decode private key")
@@ -140,6 +152,7 @@ func NewRealityServer(ctx context.Context, logger log.ContextLogger, options opt
 	var config ServerConfig = &RealityServerConfig{
 		config:           &tlsConfig,
 		handshakeTimeout: handshakeTimeout,
+		rejectUnknownSNI: options.RejectUnknownSNI,
 	}
 	if options.KernelTx || options.KernelRx {
 		if !C.IsLinux {
@@ -203,6 +216,18 @@ func (c *RealityServerConfig) ServerHandshake(ctx context.Context, conn net.Conn
 	tlsConn, err := utls.RealityServer(ctx, conn, c.config)
 	if err != nil {
 		return nil, err
+	}
+	if c.rejectUnknownSNI {
+		sni := tlsConn.ConnectionState().ServerName
+		if len(c.config.ServerNames) > 0 {
+			if sni == "" || !c.config.ServerNames[sni] {
+				_ = tlsConn.Close()
+				return nil, E.New("unknown or missing server name")
+			}
+		} else if sni != "" {
+			_ = tlsConn.Close()
+			return nil, E.New("unknown server name: no server names configured")
+		}
 	}
 	return &realityConnWrapper{Conn: tlsConn}, nil
 }
