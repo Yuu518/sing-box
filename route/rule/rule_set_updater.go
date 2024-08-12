@@ -45,7 +45,7 @@ func (u *RuleSetUpdater) Close() error {
 func (u *RuleSetUpdater) loopUpdate() {
 	nextUpdates := make([]time.Time, len(u.ruleSets))
 	for i, ruleSet := range u.ruleSets {
-		nextUpdates[i] = ruleSet.lastUpdated.Add(ruleSet.updateInterval)
+		nextUpdates[i] = ruleSet.UpdatedTime().Add(ruleSet.updateInterval)
 	}
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -61,7 +61,7 @@ func (u *RuleSetUpdater) loopUpdate() {
 			if now.Before(nextUpdates[i]) {
 				continue
 			}
-			ruleSet.updateOnce()
+			ruleSet.update()
 			nextUpdates[i] = now.Add(ruleSet.updateInterval)
 			updated = true
 		}
