@@ -203,7 +203,46 @@ func NewDefaultHeadlessRule(ctx context.Context, options option.DefaultHeadlessR
 		rule.destinationAddressItems = append(rule.destinationAddressItems, item)
 		rule.allItems = append(rule.allItems, item)
 	}
+	switch true {
+	case len(rule.destinationAddressItems)+len(rule.destinationIPCIDRItems)+len(rule.sourceAddressItems) > 0:
+		rule.ruleCount = headlessRuleEntryCount(options)
+	case len(rule.allItems) == len(rule.sourcePortItems):
+		rule.ruleCount = uint64(len(rule.sourcePortItems))
+	case len(rule.allItems) == len(rule.destinationPortItems):
+		rule.ruleCount = uint64(len(rule.destinationPortItems))
+	default:
+		rule.ruleCount = 1
+	}
 	return rule, nil
+}
+
+// Count address entries independently of the other conditions in the rule.
+// Binary matchers retain normalized entries, not the original source lists.
+func headlessRuleEntryCount(options option.DefaultHeadlessRule) uint64 {
+	count := uint64(len(options.Domain)) + uint64(len(options.DomainSuffix))
+	if count == 0 && options.DomainMatcher != nil {
+		// Dump also folds the two matcher keys used for a legacy suffix into one entry.
+		domains, suffixes := options.DomainMatcher.Dump()
+		count = uint64(len(domains)) + uint64(len(suffixes))
+	}
+	count += uint64(len(options.DomainKeyword)) + uint64(len(options.DomainRegex))
+	if len(options.SourceIPCIDR) > 0 {
+		count += uint64(len(options.SourceIPCIDR))
+	} else if options.SourceIPSet != nil {
+		// One range can require multiple CIDR prefixes.
+		count += uint64(len(options.SourceIPSet.Prefixes()))
+	}
+	if len(options.IPCIDR) > 0 {
+		count += uint64(len(options.IPCIDR))
+	} else if options.IPSet != nil {
+		count += uint64(len(options.IPSet.Prefixes()))
+	}
+	if len(options.AdGuardDomain) > 0 {
+		count += uint64(len(options.AdGuardDomain))
+	} else if options.AdGuardDomainMatcher != nil {
+		count += uint64(len(options.AdGuardDomainMatcher.Dump()))
+	}
+	return count
 }
 
 var _ adapter.HeadlessRule = (*LogicalHeadlessRule)(nil)
@@ -233,6 +272,7 @@ func NewLogicalHeadlessRule(ctx context.Context, options option.LogicalHeadlessR
 			return nil, E.Cause(err, "sub rule[", i, "]")
 		}
 		r.rules[i] = rule
+		r.ruleCount += rule.RuleCount()
 	}
 	return r, nil
 }
