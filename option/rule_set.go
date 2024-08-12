@@ -36,7 +36,7 @@ func (r RuleSet) MarshalJSON() ([]byte, error) {
 		case C.RuleSetTypeLocal:
 			defaultFormat = ruleSetDefaultFormat(r.LocalOptions.Path)
 		case C.RuleSetTypeRemote:
-			defaultFormat = ruleSetDefaultFormat(r.RemoteOptions.URL)
+			defaultFormat = remoteRuleSetDefaultFormat(r.RemoteOptions.URL, r.RemoteOptions.Path)
 		}
 		if r.Format == defaultFormat {
 			r.Format = ""
@@ -46,6 +46,7 @@ func (r RuleSet) MarshalJSON() ([]byte, error) {
 	switch r.Type {
 	case "", C.RuleSetTypeInline:
 		r.Type = ""
+		r.Format = ""
 		v = r.InlineOptions
 	case C.RuleSetTypeLocal:
 		v = r.LocalOptions
@@ -87,7 +88,7 @@ func (r *RuleSet) UnmarshalJSON(bytes []byte) error {
 			case C.RuleSetTypeLocal:
 				r.Format = ruleSetDefaultFormat(r.LocalOptions.Path)
 			case C.RuleSetTypeRemote:
-				r.Format = ruleSetDefaultFormat(r.RemoteOptions.URL)
+				r.Format = remoteRuleSetDefaultFormat(r.RemoteOptions.URL, r.RemoteOptions.Path)
 			}
 		}
 		switch r.Format {
@@ -98,7 +99,10 @@ func (r *RuleSet) UnmarshalJSON(bytes []byte) error {
 			return E.New("unknown rule-set format: " + r.Format)
 		}
 	} else {
-		r.Format = ""
+		r.Format = C.RuleSetFormatSource
+	}
+	if r.Type == C.RuleSetTypeRemote && r.RemoteOptions.Path != "" && r.RemoteOptions.InitialPath != "" {
+		return E.New("rule-set path and initial_path are mutually exclusive")
 	}
 	if len(r.Tag) > 1 {
 		switch r.Type {
@@ -112,12 +116,22 @@ func (r *RuleSet) UnmarshalJSON(bytes []byte) error {
 			if !strings.Contains(r.RemoteOptions.URL, C.RuleSetTagPlaceholder) {
 				return E.New("missing ", C.RuleSetTagPlaceholder, " placeholder in url")
 			}
+			if r.RemoteOptions.Path != "" && !strings.Contains(r.RemoteOptions.Path, C.RuleSetTagPlaceholder) {
+				return E.New("missing ", C.RuleSetTagPlaceholder, " placeholder in path")
+			}
 			if r.RemoteOptions.InitialPath != "" && !strings.Contains(r.RemoteOptions.InitialPath, C.RuleSetTagPlaceholder) {
 				return E.New("missing ", C.RuleSetTagPlaceholder, " placeholder in initial_path")
 			}
 		}
 	}
 	return nil
+}
+
+func remoteRuleSetDefaultFormat(url, path string) string {
+	if format := ruleSetDefaultFormat(url); format != "" {
+		return format
+	}
+	return ruleSetDefaultFormat(path)
 }
 
 func ruleSetDefaultFormat(path string) string {
@@ -159,17 +173,42 @@ func (r RuleSet) DescribeSchema(builder schema.Builder) (*schema.Node, error) {
 		}
 		localVariant.Required = []string{"type", "tag"}
 
-		remoteVariant := schema.StrictObject()
-		remoteVariant.Properties.Put("type", schema.StringConst(C.RuleSetTypeRemote))
-		remoteVariant.Properties.Put("tag", tagNode)
-		remoteVariant.Properties.Put("format", formatNode)
-		err = builder.FlattenStruct(remoteVariant, reflect.TypeFor[RemoteRuleSet]())
+		buildRemoteVariant := func(pathField string) (*schema.Node, error) {
+			variant := schema.StrictObject()
+			variant.Properties.Put("type", schema.StringConst(C.RuleSetTypeRemote))
+			variant.Properties.Put("tag", tagNode)
+			variant.Properties.Put("format", formatNode)
+			err = builder.FlattenStruct(variant, reflect.TypeFor[RemoteRuleSet]())
+			if err != nil {
+				return nil, err
+			}
+			variant.Required = []string{"type", "tag"}
+			switch pathField {
+			case "path":
+				variant.Properties.Remove("initial_path")
+				variant.Required = append(variant.Required, "path")
+			case "initial_path":
+				variant.Properties.Remove("path")
+				variant.Required = append(variant.Required, "initial_path")
+			default:
+				variant.Properties.Remove("path")
+				variant.Properties.Remove("initial_path")
+			}
+			return variant, nil
+		}
+		remoteWithoutPath, err := buildRemoteVariant("")
 		if err != nil {
 			return nil, err
 		}
-		remoteVariant.Required = []string{"type", "tag"}
-
-		return schema.OneOf(inlineVariant, localVariant, remoteVariant), nil
+		remoteWithPath, err := buildRemoteVariant("path")
+		if err != nil {
+			return nil, err
+		}
+		remoteWithInitialPath, err := buildRemoteVariant("initial_path")
+		if err != nil {
+			return nil, err
+		}
+		return schema.OneOf(inlineVariant, localVariant, remoteWithoutPath, remoteWithPath, remoteWithInitialPath), nil
 	})
 }
 
@@ -179,6 +218,7 @@ type LocalRuleSet struct {
 
 type RemoteRuleSet struct {
 	URL            string             `json:"url"`
+	Path           string             `json:"path,omitempty"`
 	InitialPath    string             `json:"initial_path,omitempty"`
 	HTTPClient     *HTTPClientOptions `json:"http_client,omitempty"`
 	UpdateInterval badoption.Duration `json:"update_interval,omitempty"`

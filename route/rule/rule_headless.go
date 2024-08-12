@@ -2,6 +2,7 @@ package rule
 
 import (
 	"context"
+	"math/bits"
 
 	"github.com/sagernet/sing-box/adapter"
 	C "github.com/sagernet/sing-box/constant"
@@ -32,12 +33,13 @@ var _ adapter.HeadlessRule = (*DefaultHeadlessRule)(nil)
 
 type DefaultHeadlessRule struct {
 	abstractDefaultRule
+	ruleCount uint64
 }
 
 func NewDefaultHeadlessRule(ctx context.Context, options option.DefaultHeadlessRule) (*DefaultHeadlessRule, error) {
 	networkManager := service.FromContext[adapter.NetworkManager](ctx)
 	rule := &DefaultHeadlessRule{
-		abstractDefaultRule{
+		abstractDefaultRule: abstractDefaultRule{
 			invert: options.Invert,
 		},
 	}
@@ -208,18 +210,107 @@ func NewDefaultHeadlessRule(ctx context.Context, options option.DefaultHeadlessR
 		rule.destinationAddressItems = append(rule.destinationAddressItems, item)
 		rule.allItems = append(rule.allItems, item)
 	}
+	switch {
+	case len(rule.destinationAddressItems)+len(rule.destinationIPCIDRItems)+len(rule.sourceAddressItems) > 0:
+		rule.ruleCount = headlessRuleEntryCount(options)
+	case len(rule.allItems) == 0:
+		rule.ruleCount = 1
+	case len(rule.allItems) == len(rule.sourcePortItems):
+		rule.ruleCount = uint64(len(options.SourcePort) + len(options.SourcePortRange))
+	case len(rule.allItems) == len(rule.destinationPortItems):
+		rule.ruleCount = uint64(len(options.Port) + len(options.PortRange))
+	case len(rule.allItems) == 1:
+		rule.ruleCount = max(headlessRuleConditionCount(options, networkManager != nil), 1)
+	default:
+		rule.ruleCount = 1
+	}
 	return rule, nil
+}
+
+func (r *DefaultHeadlessRule) RuleCount() uint64 {
+	return r.ruleCount
+}
+
+// Count address entries independently of the other conditions in the rule.
+// Binary matchers retain normalized entries, not the original source lists.
+func headlessRuleEntryCount(options option.DefaultHeadlessRule) uint64 {
+	count := uint64(len(options.Domain)) + uint64(len(options.DomainSuffix))
+	if count == 0 && options.DomainMatcher != nil {
+		count = succinctSetKeyCount(options.DomainMatcher.Mmap().Leaves)
+	}
+	count += uint64(len(options.DomainKeyword)) + uint64(len(options.DomainRegex))
+	if len(options.SourceIPCIDR) > 0 {
+		count += uint64(len(options.SourceIPCIDR))
+	} else if options.SourceIPSet != nil {
+		// One range can require multiple CIDR prefixes.
+		count += options.SourceIPSet.PrefixCount()
+	}
+	if len(options.IPCIDR) > 0 {
+		count += uint64(len(options.IPCIDR))
+	} else if options.IPSet != nil {
+		count += options.IPSet.PrefixCount()
+	}
+	if len(options.AdGuardDomain) > 0 {
+		count += uint64(len(options.AdGuardDomain))
+	} else if options.AdGuardDomainMatcher != nil {
+		count += succinctSetKeyCount(options.AdGuardDomainMatcher.Mmap().Leaves)
+	}
+	return count
+}
+
+func succinctSetKeyCount(leaves []uint64) uint64 {
+	var count uint64
+	for _, word := range leaves {
+		count += uint64(bits.OnesCount64(word))
+	}
+	return count
+}
+
+func headlessRuleConditionCount(options option.DefaultHeadlessRule, hasNetworkManager bool) uint64 {
+	count := len(options.QueryType) + len(options.Network) +
+		len(options.ProcessName) + len(options.ProcessPath) + len(options.ProcessPathRegex) +
+		len(options.PackageName) + len(options.PackageNameRegex)
+	if options.DomainIsECH {
+		count++
+	}
+	if hasNetworkManager {
+		count += len(options.NetworkType) + len(options.WIFISSID) + len(options.WIFIBSSID) + len(options.DefaultInterfaceAddress)
+		if options.NetworkIsExpensive {
+			count++
+		}
+		if options.NetworkIsConstrained {
+			count++
+		}
+		if options.NetworkInterfaceAddress != nil {
+			for _, entry := range options.NetworkInterfaceAddress.Entries() {
+				count += max(len(entry.Value), 1)
+			}
+		}
+	}
+	return uint64(count)
+}
+
+func headlessRuleCount(rule adapter.HeadlessRule) uint64 {
+	switch rule := rule.(type) {
+	case *DefaultHeadlessRule:
+		return rule.ruleCount
+	case *LogicalHeadlessRule:
+		return rule.ruleCount
+	default:
+		return 0
+	}
 }
 
 var _ adapter.HeadlessRule = (*LogicalHeadlessRule)(nil)
 
 type LogicalHeadlessRule struct {
 	abstractLogicalRule
+	ruleCount uint64
 }
 
 func NewLogicalHeadlessRule(ctx context.Context, options option.LogicalHeadlessRule) (*LogicalHeadlessRule, error) {
 	r := &LogicalHeadlessRule{
-		abstractLogicalRule{
+		abstractLogicalRule: abstractLogicalRule{
 			rules:  make([]adapter.HeadlessRule, len(options.Rules)),
 			invert: options.Invert,
 		},
@@ -238,6 +329,11 @@ func NewLogicalHeadlessRule(ctx context.Context, options option.LogicalHeadlessR
 			return nil, E.Cause(err, "sub rule[", i, "]")
 		}
 		r.rules[i] = rule
+		r.ruleCount += headlessRuleCount(rule)
 	}
 	return r, nil
+}
+
+func (r *LogicalHeadlessRule) RuleCount() uint64 {
+	return r.ruleCount
 }
