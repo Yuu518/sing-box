@@ -62,6 +62,8 @@ type Inbound struct {
 	routeExcludeRuleSet         []adapter.RuleSet
 	routeExcludeRuleSetCallback []*list.Element[adapter.RuleSetUpdateCallback]
 	routeAddressSetAccess       sync.RWMutex
+	routeAddressSetUpdateAccess sync.Mutex
+	routeAddressSetClosed       bool
 	routeAddressSet             []*netipx.IPSet
 	routeExcludeAddressSet      []*netipx.IPSet
 }
@@ -525,6 +527,11 @@ func (t *Inbound) Start(stage adapter.StartStage) error {
 }
 
 func (t *Inbound) updateRouteAddressSet(it adapter.RuleSet) {
+	t.routeAddressSetUpdateAccess.Lock()
+	defer t.routeAddressSetUpdateAccess.Unlock()
+	if t.routeAddressSetClosed {
+		return
+	}
 	routeAddressSet := common.FlatMap(t.routeRuleSet, adapter.RuleSet.ExtractIPSet)
 	routeExcludeAddressSet := common.FlatMap(t.routeExcludeRuleSet, adapter.RuleSet.ExtractIPSet)
 	t.routeAddressSetAccess.Lock()
@@ -554,6 +561,17 @@ func (t *Inbound) InterfaceUpdated(ctx context.Context) {
 }
 
 func (t *Inbound) Close() error {
+	t.routeAddressSetUpdateAccess.Lock()
+	defer t.routeAddressSetUpdateAccess.Unlock()
+	t.routeAddressSetClosed = true
+	for i, callback := range t.routeRuleSetCallback {
+		t.routeRuleSet[i].UnregisterCallback(callback)
+	}
+	t.routeRuleSetCallback = nil
+	for i, callback := range t.routeExcludeRuleSetCallback {
+		t.routeExcludeRuleSet[i].UnregisterCallback(callback)
+	}
+	t.routeExcludeRuleSetCallback = nil
 	return common.Close(
 		t.tunStack,
 		t.tunIf,
