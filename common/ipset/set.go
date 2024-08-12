@@ -2,6 +2,8 @@ package ipset
 
 import (
 	"encoding/binary"
+	"math"
+	"math/bits"
 	"net/netip"
 	"slices"
 
@@ -126,6 +128,83 @@ func (s *Set) IPSet() *netipx.IPSet {
 
 func (s *Set) Prefixes() []netip.Prefix {
 	return s.IPSet().Prefixes()
+}
+
+func (s *Set) PrefixCount() uint64 {
+	var count uint64
+	for i := 0; i < len(s.ranges4); {
+		from, to := s.ranges4[i].From, s.ranges4[i].To
+		for i++; i < len(s.ranges4) && to != math.MaxUint32 && s.ranges4[i].From == to+1; i++ {
+			to = s.ranges4[i].To
+		}
+		count += rangePrefixCount(uint128{lo: uint64(from)}, uint128{lo: uint64(to)}, 32)
+	}
+	for i := 0; i < len(s.ranges6); {
+		from, to := uint128From16(s.ranges6[i].From), uint128From16(s.ranges6[i].To)
+		for i++; i < len(s.ranges6); i++ {
+			next, ok := to.addOne()
+			if !ok || uint128From16(s.ranges6[i].From) != next {
+				break
+			}
+			to = uint128From16(s.ranges6[i].To)
+		}
+		count += rangePrefixCount(from, to, 128)
+	}
+	return count
+}
+
+type uint128 struct {
+	hi, lo uint64
+}
+
+func uint128From16(value [16]byte) uint128 {
+	return uint128{
+		hi: binary.BigEndian.Uint64(value[:8]),
+		lo: binary.BigEndian.Uint64(value[8:]),
+	}
+}
+
+func (u uint128) trailingZeros() int {
+	if u.lo != 0 {
+		return bits.TrailingZeros64(u.lo)
+	}
+	if u.hi != 0 {
+		return 64 + bits.TrailingZeros64(u.hi)
+	}
+	return 128
+}
+
+func (u uint128) withLowBits(n int) uint128 {
+	if n >= 64 {
+		return uint128{hi: u.hi | (uint64(1)<<(n-64) - 1), lo: math.MaxUint64}
+	}
+	return uint128{hi: u.hi, lo: u.lo | (uint64(1)<<n - 1)}
+}
+
+func (u uint128) greater(other uint128) bool {
+	return u.hi > other.hi || u.hi == other.hi && u.lo > other.lo
+}
+
+func (u uint128) addOne() (uint128, bool) {
+	lo, carry := bits.Add64(u.lo, 1, 0)
+	hi, carry := bits.Add64(u.hi, 0, carry)
+	return uint128{hi: hi, lo: lo}, carry == 0
+}
+
+func rangePrefixCount(from, to uint128, maxBits int) uint64 {
+	var count uint64
+	for {
+		size := min(from.trailingZeros(), maxBits)
+		for from.withLowBits(size).greater(to) {
+			size--
+		}
+		count++
+		end := from.withLowBits(size)
+		if end == to {
+			return count
+		}
+		from, _ = end.addOne()
+	}
 }
 
 func compare16(a [16]byte, b [16]byte) int {
