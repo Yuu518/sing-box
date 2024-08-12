@@ -130,8 +130,9 @@ type ruleSetContentProvider interface {
 }
 
 type ruleSetContent struct {
-	rules    []adapter.HeadlessRule
-	metadata adapter.RuleSetMetadata
+	rules     []adapter.HeadlessRule
+	ruleCount uint64
+	metadata  adapter.RuleSetMetadata
 }
 
 func (c *ruleSetContent) mergeableRule() *DefaultHeadlessRule {
