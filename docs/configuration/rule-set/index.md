@@ -13,6 +13,20 @@
 
 !!! question "Since sing-box 1.8.0"
 
+### Rule count
+
+The Clash API `ruleCount` counts entries in `domain`, `domain_suffix`, `domain_keyword`,
+`domain_regex`, AdGuard domain rules, `source_ip_cidr`, and `ip_cidr`. Each entry counts as one;
+CIDRs are not expanded into individual IP addresses. Additional conditions such as ports
+do not reduce this count. Logical rules recursively sum their child counts, and the
+rule-set sums its top-level rule counts. Rules without domain or IP entries retain their
+existing condition-group count.
+
+Source lists are counted as supplied, including duplicates. Binary and memory-mapped
+rule-sets count the retained domain entries and normalized CIDR prefixes. Compilation
+can remove duplicates and merge IP networks, so these counts can be lower than the
+original source count. Entries in separate rules are counted separately.
+
 ### Structure
 
 === "Inline"
@@ -49,8 +63,8 @@
       "type": "remote",
       "tag": "", // or []
       "format": "source", // or binary
+      "path": "",
       "url": "",
-      "initial_path": "",
       "http_client": "", // or {}
       "update_interval": "",
 
@@ -103,17 +117,21 @@ Format of rule-set file, `source` or `binary`.
 
 Optional when `path` or `url` uses `json` or `srs` as extension.
 
-### Local Fields
+For remote rule-sets, the URL extension takes precedence over the path extension. An explicit `format` overrides both.
 
 #### path
 
-==Required==
+==Required for local rule-sets==
 
 !!! note ""
 
     Will be automatically reloaded if file modified since sing-box 1.10.0.
 
 File path of rule-set.
+
+For remote rule-sets, downloaded content is stored at this path. When rule-set caching is enabled, `cache.db` also stores the content and metadata. If the file differs from the database, valid database content is used and the next update downloads the content again to repair the file. When the path is empty, the content is stored only in `cache.db`.
+
+Conflicts with `initial_path` for remote rule-sets.
 
 ### Remote Fields
 
@@ -129,9 +147,9 @@ Download URL of rule-set.
 
 File path of the initial rule-set content.
 
-Read once at startup when no cached rule-set is available, so startup is not
-blocked by the initial download. The rule-set is still updated in the background
-immediately after startup.
+Requires rule-set caching in `cache.db`. It is read once at startup only when no cached rule-set is available, so startup is not blocked by the initial download. The rule-set is still updated in the background immediately after startup.
+
+Conflicts with `path`.
 
 #### http_client
 
