@@ -10,9 +10,16 @@
     "proxy-b",
     "proxy-c"
   ],
+  "providers": [
+    "provider-a",
+    "provider-b",
+  ],
+  "exclude": "",
+  "include": "",
   "url": "",
   "interval": "",
   "idle_timeout": "",
+  "use_all_providers": false,
   "interrupt_exist_connections": false
 }
 ```
@@ -25,9 +32,21 @@ Unlike `urltest`, latency never influences selection: the URL test only determin
 
 #### outbounds
 
-==Required==
-
 List of outbound tags, in priority order.
+
+#### providers
+
+List of [Provider](/configuration/provider) tags, in priority order.
+
+Provider outbounds are placed after `outbounds`, in the order they appear in the subscription.
+
+#### exclude
+
+Exclude regular expression to filter `providers` nodes.
+
+#### include
+
+Include regular expression to filter `providers` nodes.
 
 #### url
 
@@ -40,6 +59,10 @@ The test interval. `3m` will be used if empty.
 #### idle_timeout
 
 The idle timeout. `30m` will be used if empty.
+
+#### use_all_providers
+
+Whether to use all providers. `false` will be used if empty.
 
 #### interrupt_exist_connections
 
