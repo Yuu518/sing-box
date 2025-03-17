@@ -1104,6 +1104,8 @@ func (r *Router) prepareExchange(ctx context.Context, message *mDNS.Msg) (*dnsEx
 	r.logger.DebugContext(ctx, "exchange ", FormatQuestion(message.Question[0].String()))
 	ctx, metadata := adapter.ExtendContext(ctx)
 	metadata.Destination = M.Socksaddr{}
+	metadata.SniffHost = ""
+	metadata.SniffHasECHExtension = false
 	metadata.QueryType = message.Question[0].Qtype
 	metadata.DNSResponse = nil
 	metadata.NamedDNSResponses = nil
@@ -1148,10 +1150,11 @@ func (r *Router) recordReverseMapping(message *mDNS.Msg, response *mDNS.Msg, tra
 			publicName := echPublicName(record)
 			if publicName != "" {
 				foundPublicName = true
+				echDomain := strings.ToLower(domain)
 				publicNameLifetime := max(lifetime, C.DefaultDNSTTL*time.Second)
-				mappedName, expireAt, loaded := r.dnsECHPublicNames.GetWithLifetime(domain)
+				mappedName, expireAt, loaded := r.dnsECHPublicNames.GetWithLifetime(echDomain)
 				if !loaded || mappedName != publicName || time.Until(expireAt) < publicNameLifetime {
-					r.dnsECHPublicNames.AddWithLifetime(domain, publicName, publicNameLifetime)
+					r.dnsECHPublicNames.AddWithLifetime(echDomain, publicName, publicNameLifetime)
 				}
 			}
 		}
@@ -1168,7 +1171,7 @@ func (r *Router) recordReverseMapping(message *mDNS.Msg, response *mDNS.Msg, tra
 		}
 	}
 	if question.Qtype == mDNS.TypeHTTPS && !foundPublicName {
-		r.dnsECHPublicNames.Remove(domain)
+		r.dnsECHPublicNames.Remove(strings.ToLower(domain))
 	}
 }
 
@@ -1366,6 +1369,8 @@ func (r *Router) Lookup(ctx context.Context, domain string, options adapter.DNSQ
 	r.logger.DebugContext(ctx, "lookup domain ", domain)
 	ctx, metadata := adapter.ExtendContext(ctx)
 	metadata.Destination = M.Socksaddr{}
+	metadata.SniffHost = ""
+	metadata.SniffHasECHExtension = false
 	metadata.Domain = FqdnToDomain(domain)
 	metadata.DNSResponse = nil
 	metadata.NamedDNSResponses = nil
@@ -1480,7 +1485,7 @@ func (r *Router) LookupECHPublicName(domain string) string {
 	if r.dnsECHPublicNames == nil {
 		return ""
 	}
-	publicName, _ := r.dnsECHPublicNames.Get(domain)
+	publicName, _ := r.dnsECHPublicNames.Get(strings.ToLower(FqdnToDomain(domain)))
 	return publicName
 }
 

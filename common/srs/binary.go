@@ -304,6 +304,9 @@ func readDefaultRule(reader varbin.Reader, recover bool) (rule option.DefaultHea
 }
 
 func writeDefaultRule(writer varbin.Writer, rule option.DefaultHeadlessRule, generateVersion uint8) error {
+	if rule.DomainIsECH {
+		return E.New("domain_is_ech requires a source rule-set")
+	}
 	err := binary.Write(writer, binary.BigEndian, uint8(0))
 	if err != nil {
 		return err
