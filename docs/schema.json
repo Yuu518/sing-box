@@ -3357,6 +3357,17 @@
       },
       "additionalProperties": false
     },
+    "DomainMatchStrategy": {
+      "type": "string",
+      "enum": [
+        "",
+        "as_is",
+        "prefer_fqdn",
+        "prefer_sniffhost",
+        "fqdn_only",
+        "sniffhost_only"
+      ]
+    },
     "DomainResolver": {
       "anyOf": [
         {
@@ -5499,6 +5510,9 @@
                 }
               ]
             },
+            "domain_match_strategy": {
+              "$ref": "#/$defs/DomainMatchStrategy"
+            },
             "network_interface_address": {
               "type": "object",
               "propertyNames": {
@@ -5555,6 +5569,9 @@
               "items": {
                 "$ref": "#/$defs/HeadlessRule"
               }
+            },
+            "domain_match_strategy": {
+              "$ref": "#/$defs/DomainMatchStrategy"
             },
             "invert": {
               "type": "boolean"
@@ -9798,6 +9815,9 @@
             "rule_set_ip_cidr_match_source": {
               "type": "boolean"
             },
+            "domain_match_strategy": {
+              "$ref": "#/$defs/DomainMatchStrategy"
+            },
             "invert": {
               "type": "boolean"
             }
@@ -9822,6 +9842,9 @@
               "items": {
                 "$ref": "#/$defs/NestedRule"
               }
+            },
+            "domain_match_strategy": {
+              "$ref": "#/$defs/DomainMatchStrategy"
             },
             "invert": {
               "type": "boolean"
@@ -14287,6 +14310,15 @@
         },
         "default_http_client": {
           "type": "string"
+        },
+        "default_domain_match_strategy": {
+          "type": "string",
+          "enum": [
+            "",
+            "as_is",
+            "prefer_fqdn",
+            "prefer_sniffhost"
+          ]
         }
       },
       "additionalProperties": false
@@ -14803,6 +14835,9 @@
                 "rule_set_ip_cidr_match_source": {
                   "type": "boolean"
                 },
+                "domain_match_strategy": {
+                  "$ref": "#/$defs/DomainMatchStrategy"
+                },
                 "invert": {
                   "type": "boolean"
                 }
@@ -14835,6 +14870,9 @@
                   "items": {
                     "$ref": "#/$defs/NestedRule"
                   }
+                },
+                "domain_match_strategy": {
+                  "$ref": "#/$defs/DomainMatchStrategy"
                 },
                 "invert": {
                   "type": "boolean"
