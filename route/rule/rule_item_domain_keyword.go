@@ -4,24 +4,47 @@ import (
 	"strings"
 
 	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 )
 
 var _ RuleItem = (*DomainKeywordItem)(nil)
 
 type DomainKeywordItem struct {
-	keywords []string
+	keywords            []string
+	domainMatchStrategy C.DomainMatchStrategy
 }
 
-func NewDomainKeywordItem(keywords []string) *DomainKeywordItem {
-	return &DomainKeywordItem{keywords}
+func NewDomainKeywordItem(keywords []string, domainMatchStrategy C.DomainMatchStrategy) *DomainKeywordItem {
+	return &DomainKeywordItem{keywords, domainMatchStrategy}
 }
 
 func (r *DomainKeywordItem) Match(metadata *adapter.InboundContext) bool {
 	var domainHost string
-	if metadata.Domain != "" {
-		domainHost = metadata.Domain
-	} else {
-		domainHost = metadata.Destination.Fqdn
+	switch r.domainMatchStrategy {
+	case C.DomainMatchStrategyPreferFQDN:
+		if metadata.Destination.IsDomain() {
+			domainHost = metadata.Destination.Fqdn
+		} else if metadata.SniffHost != "" {
+			domainHost = metadata.SniffHost
+		} else {
+			domainHost = metadata.Domain
+		}
+	case C.DomainMatchStrategyFQDNOnly:
+		if metadata.Destination.IsDomain() {
+			domainHost = metadata.Destination.Fqdn
+		}
+	case C.DomainMatchStrategySniffHostOnly:
+		if metadata.SniffHost != "" {
+			domainHost = metadata.SniffHost
+		}
+	default:
+		if metadata.Destination.IsDomain() {
+			domainHost = metadata.Destination.Fqdn
+		} else if metadata.SniffHost != "" {
+			domainHost = metadata.SniffHost
+		} else {
+			domainHost = metadata.Domain
+		}
 	}
 	if domainHost == "" {
 		return false
