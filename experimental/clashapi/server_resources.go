@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/interrupt"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -68,7 +69,11 @@ func (s *Server) downloadExternalUI() error {
 		},
 	}
 	defer httpClient.CloseIdleConnections()
-	response, err := httpClient.Get(downloadURL)
+	request, err := http.NewRequestWithContext(interrupt.ContextWithIsResourceDownload(s.ctx), http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return err
+	}
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return err
 	}
