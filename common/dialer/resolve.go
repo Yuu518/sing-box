@@ -3,6 +3,7 @@ package dialer
 import (
 	"context"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -35,7 +36,9 @@ type resolveDialer struct {
 	transport     adapter.DNSTransportManager
 	router        adapter.DNSRouter
 	dialer        N.Dialer
+	logger        log.ContextLogger
 	parallel      bool
+	concurrent    bool
 	server        string
 	initOnce      sync.Once
 	initErr       error
@@ -44,13 +47,25 @@ type resolveDialer struct {
 }
 
 func NewResolveDialer(ctx context.Context, dialer N.Dialer, parallel bool, server string, queryOptions adapter.DNSQueryOptions, fallbackDelay time.Duration) ResolveDialer {
+	var concurrent bool
+	networkManager := service.FromContext[adapter.NetworkManager](ctx)
+	if networkManager != nil {
+		concurrent = networkManager.DefaultOptions().ConcurrentDial
+	}
+	var dialerLogger log.ContextLogger
+	logFactory := service.FromContext[log.Factory](ctx)
+	if logFactory != nil {
+		dialerLogger = logFactory.NewLogger("dialer")
+	}
 	if parallelDialer, isParallel := dialer.(ParallelInterfaceDialer); isParallel {
 		return &resolveParallelNetworkDialer{
 			resolveDialer{
 				transport:     service.FromContext[adapter.DNSTransportManager](ctx),
 				router:        service.FromContext[adapter.DNSRouter](ctx),
 				dialer:        dialer,
+				logger:        dialerLogger,
 				parallel:      parallel,
+				concurrent:    concurrent,
 				server:        server,
 				queryOptions:  queryOptions,
 				fallbackDelay: fallbackDelay,
@@ -62,7 +77,9 @@ func NewResolveDialer(ctx context.Context, dialer N.Dialer, parallel bool, serve
 		transport:     service.FromContext[adapter.DNSTransportManager](ctx),
 		router:        service.FromContext[adapter.DNSRouter](ctx),
 		dialer:        dialer,
+		logger:        dialerLogger,
 		parallel:      parallel,
+		concurrent:    concurrent,
 		server:        server,
 		queryOptions:  queryOptions,
 		fallbackDelay: fallbackDelay,
@@ -99,16 +116,50 @@ func (d *resolveDialer) DialContext(ctx context.Context, network string, destina
 	if !destination.IsDomain() {
 		return d.dialer.DialContext(ctx, network, destination)
 	}
-	ctx = log.ContextWithOverrideLevel(ctx, log.LevelDebug)
-	addresses, err := d.router.Lookup(ctx, destination.Fqdn, d.queryOptions)
+	lookupCtx := log.ContextWithOverrideLevel(ctx, log.LevelDebug)
+	addresses, err := d.router.Lookup(lookupCtx, destination.Fqdn, d.queryOptions)
 	if err != nil {
 		return nil, err
+	}
+	if d.concurrent && N.NetworkName(network) == N.NetworkTCP {
+		return d.dialConcurrentNetwork(ctx, network, destination, addresses, nil, nil, nil, d.fallbackDelay)
 	}
 	if d.parallel {
 		return N.DialParallel(ctx, d.dialer, network, destination, addresses, d.queryOptions.Strategy == C.DomainStrategyPreferIPv6, d.fallbackDelay)
 	} else {
 		return N.DialSerial(ctx, d.dialer, network, destination, addresses)
 	}
+}
+
+func (d *resolveDialer) dialConcurrentNetwork(ctx context.Context, network string, destination M.Socksaddr, addresses []netip.Addr, strategy *C.NetworkStrategy, interfaceType []C.InterfaceType, fallbackInterfaceType []C.InterfaceType, fallbackDelay time.Duration) (net.Conn, error) {
+	domainStrategy := d.router.ResolveLookupStrategy(d.queryOptions)
+	if domainStrategy != C.DomainStrategyPreferIPv4 && domainStrategy != C.DomainStrategyPreferIPv6 {
+		return DialConcurrentNetwork(ctx, d.dialer, d.logger, network, destination, addresses, strategy, interfaceType, fallbackInterfaceType, fallbackDelay)
+	}
+	var primaryAddresses, fallbackAddresses []netip.Addr
+	for _, address := range addresses {
+		isIPv6 := address.Is6() && !address.Is4In6()
+		if isIPv6 == (domainStrategy == C.DomainStrategyPreferIPv6) {
+			primaryAddresses = append(primaryAddresses, address)
+		} else {
+			fallbackAddresses = append(fallbackAddresses, address)
+		}
+	}
+	if len(primaryAddresses) == 0 || len(fallbackAddresses) == 0 {
+		return DialConcurrentNetwork(ctx, d.dialer, d.logger, network, destination, addresses, strategy, interfaceType, fallbackInterfaceType, fallbackDelay)
+	}
+	conn, err := DialConcurrentNetwork(ctx, d.dialer, d.logger, network, destination, primaryAddresses, strategy, interfaceType, fallbackInterfaceType, fallbackDelay)
+	if err == nil {
+		return conn, nil
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	conn, fallbackErr := DialConcurrentNetwork(ctx, d.dialer, d.logger, network, destination, fallbackAddresses, strategy, interfaceType, fallbackInterfaceType, fallbackDelay)
+	if fallbackErr != nil {
+		return nil, E.Errors(err, fallbackErr)
+	}
+	return conn, nil
 }
 
 func (d *resolveDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
@@ -119,8 +170,8 @@ func (d *resolveDialer) ListenPacket(ctx context.Context, destination M.Socksadd
 	if !destination.IsDomain() {
 		return d.dialer.ListenPacket(ctx, destination)
 	}
-	ctx = log.ContextWithOverrideLevel(ctx, log.LevelDebug)
-	addresses, err := d.router.Lookup(ctx, destination.Fqdn, d.queryOptions)
+	lookupCtx := log.ContextWithOverrideLevel(ctx, log.LevelDebug)
+	addresses, err := d.router.Lookup(lookupCtx, destination.Fqdn, d.queryOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -147,13 +198,16 @@ func (d *resolveParallelNetworkDialer) DialParallelInterface(ctx context.Context
 	if !destination.IsDomain() {
 		return d.dialer.DialContext(ctx, network, destination)
 	}
-	ctx = log.ContextWithOverrideLevel(ctx, log.LevelDebug)
-	addresses, err := d.router.Lookup(ctx, destination.Fqdn, d.queryOptions)
+	lookupCtx := log.ContextWithOverrideLevel(ctx, log.LevelDebug)
+	addresses, err := d.router.Lookup(lookupCtx, destination.Fqdn, d.queryOptions)
 	if err != nil {
 		return nil, err
 	}
 	if fallbackDelay == 0 {
 		fallbackDelay = d.fallbackDelay
+	}
+	if d.concurrent && N.NetworkName(network) == N.NetworkTCP {
+		return d.dialConcurrentNetwork(ctx, network, destination, addresses, strategy, interfaceType, fallbackInterfaceType, fallbackDelay)
 	}
 	if d.parallel {
 		return DialParallelNetwork(ctx, d.dialer, network, destination, addresses, d.queryOptions.Strategy == C.DomainStrategyPreferIPv6, strategy, interfaceType, fallbackInterfaceType, fallbackDelay)
@@ -170,8 +224,8 @@ func (d *resolveParallelNetworkDialer) ListenSerialInterfacePacket(ctx context.C
 	if !destination.IsDomain() {
 		return d.dialer.ListenPacket(ctx, destination)
 	}
-	ctx = log.ContextWithOverrideLevel(ctx, log.LevelDebug)
-	addresses, err := d.router.Lookup(ctx, destination.Fqdn, d.queryOptions)
+	lookupCtx := log.ContextWithOverrideLevel(ctx, log.LevelDebug)
+	addresses, err := d.router.Lookup(lookupCtx, destination.Fqdn, d.queryOptions)
 	if err != nil {
 		return nil, err
 	}
