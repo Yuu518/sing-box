@@ -14980,6 +14980,9 @@
         "default_fallback_delay": {
           "$ref": "#/$defs/Duration"
         },
+        "concurrent_dial": {
+          "type": "boolean"
+        },
         "default_http_client": {
           "type": "string"
         },
