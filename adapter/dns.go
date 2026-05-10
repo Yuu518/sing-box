@@ -20,6 +20,7 @@ type DNSRouter interface {
 	Exchange(ctx context.Context, message *dns.Msg, options DNSQueryOptions) (*dns.Msg, error)
 	ExchangeAsync(ctx context.Context, message *dns.Msg, options DNSQueryOptions, callback func(response *dns.Msg, err error))
 	Lookup(ctx context.Context, domain string, options DNSQueryOptions) ([]netip.Addr, error)
+	ResolveLookupStrategy(options DNSQueryOptions) C.DomainStrategy
 	ClearCache()
 	LookupReverseMapping(ip netip.Addr) (string, bool)
 	ResetNetwork()
