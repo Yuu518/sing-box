@@ -950,7 +950,7 @@ func (r *Router) exchangeWithRulesAsync(ctx context.Context, rules []adapter.DNS
 	}()
 }
 
-func (r *Router) resolveLookupStrategy(options adapter.DNSQueryOptions) C.DomainStrategy {
+func (r *Router) ResolveLookupStrategy(options adapter.DNSQueryOptions) C.DomainStrategy {
 	if options.LookupStrategy != C.DomainStrategyAsIS {
 		return options.LookupStrategy
 	}
@@ -991,7 +991,7 @@ func filterAddressesByQueryType(addresses []netip.Addr, qType uint16) []netip.Ad
 }
 
 func (r *Router) lookupWithRules(ctx context.Context, rules []adapter.DNSRule, domain string, options adapter.DNSQueryOptions) ([]netip.Addr, error) {
-	strategy := r.resolveLookupStrategy(options)
+	strategy := r.ResolveLookupStrategy(options)
 	lookupOptions := options
 	if strategy != C.DomainStrategyAsIS {
 		lookupOptions.Strategy = strategy
