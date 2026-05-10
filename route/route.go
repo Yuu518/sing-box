@@ -160,6 +160,23 @@ func (r *Router) routeConnection(ctx context.Context, conn net.Conn, metadata ad
 		}
 		selectedOutbound = defaultOutbound
 	}
+	if r.concurrentDial && len(metadata.DestinationAddresses) == 0 && metadata.Destination.IsDomain() {
+		err = r.actionResolve(ctx, &metadata, &R.RuleActionResolve{})
+		if err != nil {
+			buf.ReleaseMulti(buffers)
+			return err
+		}
+	} else if r.concurrentDial && len(metadata.DestinationAddresses) == 0 && M.IsDomainName(metadata.Domain) {
+		metadata.Destination = M.Socksaddr{
+			Fqdn: metadata.Domain,
+			Port: metadata.Destination.Port,
+		}
+		err = r.actionResolve(ctx, &metadata, &R.RuleActionResolve{})
+		if err != nil {
+			buf.ReleaseMulti(buffers)
+			return err
+		}
+	}
 
 	for _, buffer := range buffers {
 		conn = bufio.NewCachedConn(conn, buffer)

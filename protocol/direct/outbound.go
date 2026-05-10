@@ -31,6 +31,7 @@ func RegisterOutbound(registry *outbound.Registry) {
 var (
 	_ N.ParallelDialer                = (*Outbound)(nil)
 	_ dialer.ParallelNetworkDialer    = (*Outbound)(nil)
+	_ dialer.ConcurrentNetworkDialer  = (*Outbound)(nil)
 	_ dialer.DirectDialer             = (*Outbound)(nil)
 	_ adapter.FlowOutbound            = (*Outbound)(nil)
 	_ adapter.InterfaceUpdateListener = (*Outbound)(nil)
@@ -240,6 +241,23 @@ func (h *Outbound) DialParallelNetwork(ctx context.Context, network string, dest
 		h.logger.InfoContext(ctx, "outbound packet connection to ", destination)
 	}
 	return dialer.DialParallelNetwork(ctx, h.dialer, network, destination, destinationAddresses, len(destinationAddresses) > 0 && destinationAddresses[0].Is6(), networkStrategy, networkType, fallbackNetworkType, fallbackDelay)
+}
+
+func (h *Outbound) DialConcurrentNetwork(ctx context.Context, network string, destination M.Socksaddr, destinationAddresses []netip.Addr, networkStrategy *C.NetworkStrategy, networkType []C.InterfaceType, fallbackNetworkType []C.InterfaceType, fallbackDelay time.Duration) (net.Conn, error) {
+	if h.isMyLoopbackAddress(destinationAddresses...) {
+		return nil, E.New("loopback connection to TUN range")
+	}
+	ctx, metadata := adapter.ExtendContext(ctx)
+	metadata.Outbound = h.Tag()
+	metadata.Destination = destination
+	network = N.NetworkName(network)
+	switch network {
+	case N.NetworkTCP:
+		h.logger.InfoContext(ctx, "outbound connection to ", destination)
+	case N.NetworkUDP:
+		h.logger.InfoContext(ctx, "outbound packet connection to ", destination)
+	}
+	return dialer.DialConcurrentNetwork(ctx, h.dialer, network, destination, destinationAddresses, networkStrategy, networkType, fallbackNetworkType, fallbackDelay)
 }
 
 func (h *Outbound) ListenSerialNetworkPacket(ctx context.Context, destination M.Socksaddr, destinationAddresses []netip.Addr, networkStrategy *C.NetworkStrategy, networkType []C.InterfaceType, fallbackNetworkType []C.InterfaceType, fallbackDelay time.Duration) (net.PacketConn, netip.Addr, error) {

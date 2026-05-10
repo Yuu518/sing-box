@@ -43,6 +43,7 @@ type NetworkOptions struct {
 	NetworkType          []C.InterfaceType
 	FallbackNetworkType  []C.InterfaceType
 	FallbackDelay        time.Duration
+	ConcurrentDial       bool
 }
 
 type InterfaceUpdateListener interface {
