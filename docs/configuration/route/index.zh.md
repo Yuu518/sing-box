@@ -9,6 +9,7 @@ icon: material/alert-decagram
     :material-plus: [default_http_client](#default_http_client)  
     :material-plus: [find_neighbor](#find_neighbor)  
     :material-plus: [dhcp_lease_files](#dhcp_lease_files)
+    :material-plus: [concurrent_dial](#concurrent_dial)
 
 !!! quote "sing-box 1.12.0 中的更改"
 
@@ -47,8 +48,12 @@ icon: material/alert-decagram
     "find_neighbor": false,
     "dhcp_lease_files": [],
     "default_http_client": "",
+    "default_domain_resolver": "", // 或 {}
     "default_network_strategy": "",
-    "default_fallback_delay": ""
+    "default_network_type": [],
+    "default_fallback_network_type": [],
+    "default_fallback_delay": "",
+    "concurrent_dial": false
   }
 }
 ```
@@ -193,3 +198,13 @@ icon: material/alert-decagram
 !!! question "自 sing-box 1.11.0 起"
 
 详情参阅 [拨号字段](/zh/configuration/shared/dial/#fallback_delay)。
+
+#### concurrent_dial
+
+启用后，TCP 拨号会在本地解析当前拨号的域名，并同时尝试连接所有候选 IP，使用最先成功的连接。
+
+如果实际生效的域名解析 `strategy`（包括继承的 `dns.strategy`）为 `prefer_ipv4` 或 `prefer_ipv6`，则先仅对优先地址族的地址并发拨号，全部失败后才并发尝试另一地址族；如果没有优先地址族的地址，则直接尝试另一地址族。此模式下，`fallback_delay` 不会触发地址族之间的提前切换。`ipv4_only` 和 `ipv6_only` 仍将解析结果限制为指定地址族。
+
+并发发生在物理拨号层：直连出站会竞速目标 IP，代理出站会竞速其自身服务器的 IP。通过代理协议传递的域名目标仍保持为域名并由代理服务器解析，除非路由规则显式解析该目标。
+
+此选项不影响 UDP 和 QUIC 流量。
