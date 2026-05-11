@@ -49,17 +49,15 @@ func (h *Inbound) UnmarshalJSONContext(ctx context.Context, content []byte) erro
 	}
 	if listenWrapper, isListen := options.(ListenOptionsWrapper); isListen {
 		listenOptions := listenWrapper.TakeListenOptions()
-		//nolint:staticcheck
 		if listenOptions.InboundOptions != (InboundOptions{}) {
 			return E.New("legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions")
 		}
-		if listenOptions.ListenUnix != "" {
-			if h.Type != C.TypeVMess && h.Type != C.TypeTrojan {
-				return E.New("listen_unix is not supported by ", h.Type, " inbound")
-			}
-			if listenOptions.Listen != nil || listenOptions.ListenPort != 0 {
-				return E.New("listen_unix is conflict with listen/listen_port")
-			}
+		if listenOptions.ListenUnix != "" && h.Type != C.TypeVMess && h.Type != C.TypeTrojan {
+			return E.New("listen_unix is not supported by ", h.Type, " inbound")
+		}
+		err = listenOptions.CheckListenUnix()
+		if err != nil {
+			return err
 		}
 	}
 	h.Options = options
@@ -76,7 +74,6 @@ func (h Inbound) DescribeSchema(builder schema.Builder) (*schema.Node, error) {
 	})
 }
 
-// Deprecated: Use rule action instead
 type InboundOptions struct {
 	SniffEnabled              bool               `json:"sniff,omitempty" schema:"omit"`
 	SniffOverrideDestination  bool               `json:"sniff_override_destination,omitempty" schema:"omit"`
@@ -103,13 +100,9 @@ type ListenOptions struct {
 	UDPTimeout           UDPTimeoutCompat   `json:"udp_timeout,omitempty"`
 	Detour               string             `json:"detour,omitempty" reference:"inbound"`
 
-	// Deprecated: removed
-	ProxyProtocol bool `json:"proxy_protocol,omitempty" schema:"omit"`
-	// Deprecated: removed
+	ProxyProtocol               bool `json:"proxy_protocol,omitempty" schema:"omit"`
 	ProxyProtocolAcceptNoHeader bool `json:"proxy_protocol_accept_no_header,omitempty" schema:"omit"`
-	// Legacy inbound fields are rejected since sing-box 1.13.0.
-	//nolint:staticcheck
-	InboundOptions `schema:"omit"`
+	InboundOptions              `schema:"omit"`
 }
 
 type UDPNATBehavior uint8
@@ -183,6 +176,16 @@ func (c UDPTimeoutCompat) DescribeSchema(builder schema.Builder) (*schema.Node, 
 type ListenOptionsWrapper interface {
 	TakeListenOptions() ListenOptions
 	ReplaceListenOptions(options ListenOptions)
+}
+
+func (o *ListenOptions) CheckListenUnix() error {
+	if o.ListenUnix == "" {
+		return nil
+	}
+	if o.Listen != nil || o.ListenPort != 0 {
+		return E.New("listen_unix is conflict with listen/listen_port")
+	}
+	return nil
 }
 
 func (o *ListenOptions) TakeListenOptions() ListenOptions {

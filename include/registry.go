@@ -42,6 +42,7 @@ import (
 	originca "github.com/sagernet/sing-box/service/origin_ca"
 	"github.com/sagernet/sing-box/service/resolved"
 	"github.com/sagernet/sing-box/service/ssmapi"
+	"github.com/sagernet/sing-box/service/xboard"
 	E "github.com/sagernet/sing/common/exceptions"
 )
 
@@ -147,6 +148,7 @@ func ServiceRegistry() *service.Registry {
 	api.RegisterService(registry)
 	resolved.RegisterService(registry)
 	ssmapi.RegisterService(registry)
+	xboard.RegisterService(registry)
 
 	registerQUICServices(registry)
 	registerDERPService(registry)

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
@@ -50,6 +51,7 @@ type Inbound struct {
 	network          []string
 	networkIsDefault bool
 	authenticator    *auth.Authenticator
+	access           sync.RWMutex
 	tlsConfig        tls.ServerConfig
 	httpServer       *http.Server
 }
@@ -86,6 +88,17 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		inbound.tlsConfig = tlsConfig
 	}
 	return inbound, nil
+}
+
+func (n *Inbound) UpdateUsers(options any) error {
+	inboundOptions := options.(*option.NaiveInboundOptions)
+	if len(inboundOptions.Users) == 0 {
+		return E.New("missing users")
+	}
+	n.access.Lock()
+	n.authenticator = auth.NewAuthenticator(inboundOptions.Users)
+	n.access.Unlock()
+	return nil
 }
 
 func (n *Inbound) Start(stage adapter.StartStage, scope *adapter.Scope) error {
@@ -157,7 +170,7 @@ func (n *Inbound) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	userName, password, authOk := sHttp.ParseBasicAuth(request.Header.Get("Proxy-Authorization"))
 	if authOk {
-		authOk = n.authenticator.Verify(userName, password)
+		authOk = n.getAuthenticator().Verify(userName, password)
 	}
 	if !authOk {
 		rejectHTTP(writer, http.StatusProxyAuthRequired)
@@ -204,6 +217,12 @@ func (n *Inbound) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			remoteAddress: source,
 		}, userName, source, destination)
 	}
+}
+
+func (n *Inbound) getAuthenticator() *auth.Authenticator {
+	n.access.RLock()
+	defer n.access.RUnlock()
+	return n.authenticator
 }
 
 func (n *Inbound) newConnection(ctx context.Context, waitForClose bool, conn net.Conn, userName string, source M.Socksaddr, destination M.Socksaddr) {
