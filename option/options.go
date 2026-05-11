@@ -5,7 +5,9 @@ import (
 	"context"
 	"reflect"
 
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/schema"
+	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
 	"github.com/sagernet/sing/common/json"
@@ -81,6 +83,10 @@ func checkOptions(options *Options) error {
 	if err != nil {
 		return err
 	}
+	err = checkXboardServices(options.Inbounds, options.Services)
+	if err != nil {
+		return err
+	}
 	err = checkOutbounds(options.Outbounds, options.Endpoints)
 	if err != nil {
 		return err
@@ -92,6 +98,77 @@ func checkOptions(options *Options) error {
 	err = checkHTTPClients(options.HTTPClients)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func checkXboardServices(inbounds []Inbound, services []Service) error {
+	inboundByTag := make(map[string]bool, len(inbounds))
+	for i, inbound := range inbounds {
+		tag := inbound.Tag
+		if tag == "" {
+			tag = F.ToString(i)
+		}
+		inboundByTag[tag] = true
+	}
+	mappedByTag := make(map[string]bool)
+	for _, service := range services {
+		if service.Type != C.TypeXboard {
+			continue
+		}
+		xboardOptions, loaded := service.Options.(*XboardServiceOptions)
+		if !loaded {
+			continue
+		}
+		panels := make(map[string]bool, len(xboardOptions.Panels))
+		for _, panel := range xboardOptions.Panels {
+			if panel.Tag == "" {
+				return E.New("missing xboard panel tag")
+			}
+			if panels[panel.Tag] {
+				return E.New("duplicate xboard panel tag: ", panel.Tag)
+			}
+			if panel.URL == "" {
+				return E.New("missing xboard panel URL: ", panel.Tag)
+			}
+			if panel.Token == "" {
+				return E.New("missing xboard panel token: ", panel.Tag)
+			}
+			if panel.MachineID < 0 {
+				return E.New("invalid xboard machine_id: ", panel.Tag)
+			}
+			if panel.TLS != nil && panel.MachineID == 0 {
+				return E.New("xboard panel tls requires machine_id: ", panel.Tag)
+			}
+			panels[panel.Tag] = true
+		}
+		if len(xboardOptions.Nodes) == 0 && !common.Any(xboardOptions.Panels, func(panel XboardPanelOptions) bool {
+			return panel.MachineID > 0
+		}) {
+			return E.New("missing xboard nodes")
+		}
+		for _, node := range xboardOptions.Nodes {
+			nodeTag := node.Inbound
+			if node.Panel == "" {
+				return E.New("missing xboard node panel")
+			}
+			if nodeTag == "" {
+				nodeTag = F.ToString(C.TypeXboard, "/", node.Panel, "/", node.NodeID)
+			}
+			if !panels[node.Panel] {
+				return E.New("xboard panel not found: ", node.Panel)
+			}
+			if node.NodeID <= 0 {
+				return E.New("invalid xboard node_id for inbound: ", nodeTag)
+			}
+			if inboundByTag[nodeTag] {
+				return E.New("xboard inbound conflicts with static inbound: ", nodeTag)
+			}
+			if mappedByTag[nodeTag] {
+				return E.New("duplicate xboard inbound mapping: ", nodeTag)
+			}
+			mappedByTag[nodeTag] = true
+		}
 	}
 	return nil
 }
