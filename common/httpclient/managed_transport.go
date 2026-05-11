@@ -44,6 +44,14 @@ type managedResponseBody struct {
 	once    sync.Once
 }
 
+// managedWritableResponseBody preserves the io.ReadWriteCloser contract of bodies
+// returned for protocol switches (101 Switching Protocols), which callers type
+// assert to take over the connection, notably the WebSocket handshake.
+type managedWritableResponseBody struct {
+	*managedResponseBody
+	writer io.Writer
+}
+
 func (e *transportEpoch) tryClose() {
 	e.closeOnce.Do(func() {
 		e.transport.Close()
@@ -58,6 +66,10 @@ func (b *managedResponseBody) Close() error {
 	err := b.body.Close()
 	b.once.Do(b.release)
 	return err
+}
+
+func (b *managedWritableResponseBody) Write(p []byte) (int, error) {
+	return b.writer.Write(p)
 }
 
 func (t *ManagedTransport) getEpoch() (*transportEpoch, error) {
@@ -130,9 +142,17 @@ func (t *ManagedTransport) RoundTrip(request *http.Request) (*http.Response, err
 		t.releaseEpoch(epoch)
 		return response, roundTripErr
 	}
-	response.Body = &managedResponseBody{
+	managedBody := &managedResponseBody{
 		body:    response.Body,
 		release: func() { t.releaseEpoch(epoch) },
+	}
+	if writer, writable := response.Body.(io.Writer); writable {
+		response.Body = &managedWritableResponseBody{
+			managedResponseBody: managedBody,
+			writer:              writer,
+		}
+	} else {
+		response.Body = managedBody
 	}
 	return response, roundTripErr
 }

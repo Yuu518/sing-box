@@ -4,6 +4,7 @@ import (
 	std_bufio "bufio"
 	"context"
 	"net"
+	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
@@ -32,6 +33,7 @@ type Inbound struct {
 	logger        log.ContextLogger
 	listener      *listener.Listener
 	authenticator *auth.Authenticator
+	access        sync.RWMutex
 	tlsConfig     tls.ServerConfig
 }
 
@@ -66,6 +68,14 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	return inbound, nil
 }
 
+func (h *Inbound) UpdateUsers(options any) error {
+	inboundOptions := options.(*option.HTTPMixedInboundOptions)
+	h.access.Lock()
+	h.authenticator = auth.NewAuthenticator(inboundOptions.Users)
+	h.access.Unlock()
+	return nil
+}
+
 func (h *Inbound) Start(stage adapter.StartStage) error {
 	if stage != adapter.StartStateStart {
 		return nil
@@ -96,11 +106,18 @@ func (h *Inbound) NewConnection(ctx context.Context, conn net.Conn, metadata ada
 		}
 		conn = tlsConn
 	}
-	err := http.HandleConnectionEx(ctx, conn, std_bufio.NewReader(conn), h.authenticator, adapter.NewUpstreamHandler(metadata, h.newUserConnection, h.streamUserPacketConnection), metadata.Source, onClose)
+	authenticator := h.getAuthenticator()
+	err := http.HandleConnectionEx(ctx, conn, std_bufio.NewReader(conn), authenticator, adapter.NewUpstreamHandler(metadata, h.newUserConnection, h.streamUserPacketConnection), metadata.Source, onClose)
 	if err != nil {
 		N.CloseOnHandshakeFailure(conn, onClose, err)
 		h.logger.ErrorContext(ctx, E.Cause(err, "process connection from ", metadata.Source))
 	}
+}
+
+func (h *Inbound) getAuthenticator() *auth.Authenticator {
+	h.access.RLock()
+	defer h.access.RUnlock()
+	return h.authenticator
 }
 
 func (h *Inbound) newUserConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {

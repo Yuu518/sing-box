@@ -79,6 +79,14 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	return inbound, nil
 }
 
+func (h *Inbound) UpdateUsers(options any) error {
+	inboundOptions := options.(*option.AnyTLSInboundOptions)
+	h.service.UpdateUsers(common.Map(inboundOptions.Users, func(it option.AnyTLSUser) anytls.User {
+		return (anytls.User)(it)
+	}))
+	return nil
+}
+
 func (h *Inbound) Start(stage adapter.StartStage) error {
 	if stage != adapter.StartStateStart {
 		return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
@@ -36,6 +37,7 @@ type Inbound struct {
 	listener                 *listener.Listener
 	service                  *trojan.Service[int]
 	users                    []option.TrojanUser
+	access                   sync.RWMutex
 	tlsConfig                tls.ServerConfig
 	fallbackAddr             M.Socksaddr
 	fallbackAddrTLSNextProto map[string]M.Socksaddr
@@ -116,6 +118,22 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	return inbound, nil
 }
 
+func (h *Inbound) UpdateUsers(options any) error {
+	inboundOptions := options.(*option.TrojanInboundOptions)
+	err := h.service.UpdateUsers(common.MapIndexed(inboundOptions.Users, func(index int, it option.TrojanUser) int {
+		return index
+	}), common.Map(inboundOptions.Users, func(it option.TrojanUser) string {
+		return it.Password
+	}))
+	if err != nil {
+		return err
+	}
+	h.access.Lock()
+	h.users = inboundOptions.Users
+	h.access.Unlock()
+	return nil
+}
+
 func (h *Inbound) Start(stage adapter.StartStage) error {
 	if stage != adapter.StartStateStart {
 		return nil
@@ -189,7 +207,7 @@ func (h *Inbound) newConnection(ctx context.Context, conn net.Conn, metadata ada
 		N.CloseOnHandshakeFailure(conn, onClose, os.ErrInvalid)
 		return
 	}
-	user := h.users[userIndex].Name
+	user := h.userName(userIndex)
 	if user == "" {
 		user = F.ToString(userIndex)
 	} else {
@@ -207,7 +225,7 @@ func (h *Inbound) newPacketConnection(ctx context.Context, conn N.PacketConn, me
 		N.CloseOnHandshakeFailure(conn, onClose, os.ErrInvalid)
 		return
 	}
-	user := h.users[userIndex].Name
+	user := h.userName(userIndex)
 	if user == "" {
 		user = F.ToString(userIndex)
 	} else {
@@ -215,6 +233,15 @@ func (h *Inbound) newPacketConnection(ctx context.Context, conn N.PacketConn, me
 	}
 	h.logger.InfoContext(ctx, "[", user, "] inbound packet connection to ", metadata.Destination)
 	h.router.RoutePacketConnectionEx(ctx, conn, metadata, onClose)
+}
+
+func (h *Inbound) userName(index int) string {
+	h.access.RLock()
+	defer h.access.RUnlock()
+	if index < 0 || index >= len(h.users) {
+		return ""
+	}
+	return h.users[index].Name
 }
 
 func (h *Inbound) fallbackConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
