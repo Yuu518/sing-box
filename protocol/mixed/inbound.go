@@ -4,6 +4,7 @@ import (
 	std_bufio "bufio"
 	"context"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -37,6 +38,7 @@ type Inbound struct {
 	logger        log.ContextLogger
 	listener      *listener.Listener
 	authenticator *auth.Authenticator
+	access        sync.RWMutex
 	tlsConfig     tls.ServerConfig
 	udpTimeout    time.Duration
 }
@@ -77,6 +79,14 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		SystemProxySOCKS:  true,
 	})
 	return inbound, nil
+}
+
+func (h *Inbound) UpdateUsers(options any) error {
+	inboundOptions := options.(*option.HTTPMixedInboundOptions)
+	h.access.Lock()
+	h.authenticator = auth.NewAuthenticator(inboundOptions.Users)
+	h.access.Unlock()
+	return nil
 }
 
 func (h *Inbound) Start(stage adapter.StartStage) error {
@@ -126,10 +136,16 @@ func (h *Inbound) newConnection(ctx context.Context, conn net.Conn, metadata ada
 	}
 	switch headerBytes[0] {
 	case socks4.Version, socks5.Version:
-		return socks.HandleConnectionEx(ctx, conn, reader, h.authenticator, adapter.NewUpstreamHandler(metadata, h.newUserConnection, h.streamUserPacketConnection), h.listener, h.udpTimeout, metadata.Source, onClose)
+		return socks.HandleConnectionEx(ctx, conn, reader, h.getAuthenticator(), adapter.NewUpstreamHandler(metadata, h.newUserConnection, h.streamUserPacketConnection), h.listener, h.udpTimeout, metadata.Source, onClose)
 	default:
-		return http.HandleConnectionEx(ctx, conn, reader, h.authenticator, adapter.NewUpstreamHandler(metadata, h.newUserConnection, h.streamUserPacketConnection), metadata.Source, onClose)
+		return http.HandleConnectionEx(ctx, conn, reader, h.getAuthenticator(), adapter.NewUpstreamHandler(metadata, h.newUserConnection, h.streamUserPacketConnection), metadata.Source, onClose)
 	}
+}
+
+func (h *Inbound) getAuthenticator() *auth.Authenticator {
+	h.access.RLock()
+	defer h.access.RUnlock()
+	return h.authenticator
 }
 
 func (h *Inbound) newUserConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
