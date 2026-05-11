@@ -17696,6 +17696,38 @@
               "additionalProperties": false
             }
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "xboard"
+            },
+            "tag": {
+              "type": "string"
+            },
+            "panels": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/XboardPanelOptions"
+              }
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/XboardNodeOptions"
+              }
+            },
+            "cache_max_age": {
+              "$ref": "#/$defs/Duration"
+            }
+          },
+          "required": [
+            "type",
+            "panels",
+            "nodes"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -18201,6 +18233,89 @@
           ]
         }
       },
+      "additionalProperties": false
+    },
+    "XboardNodeOptions": {
+      "type": "object",
+      "properties": {
+        "inbound": {
+          "type": "string"
+        },
+        "panel": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "node_type": {
+          "type": "string",
+          "enum": [
+            "shadowsocks",
+            "vmess",
+            "vless",
+            "trojan",
+            "hysteria",
+            "hysteria2",
+            "tuic",
+            "anytls",
+            "socks",
+            "http",
+            "naive"
+          ]
+        },
+        "listen": {
+          "type": "string"
+        },
+        "listen_unix": {
+          "type": "string"
+        },
+        "tls": {
+          "$ref": "#/$defs/InboundTLSOptions"
+        },
+        "transport": {
+          "$ref": "#/$defs/V2RayTransport"
+        }
+      },
+      "required": [
+        "panel",
+        "node_id"
+      ],
+      "additionalProperties": false
+    },
+    "XboardPanelOptions": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "examples": [
+            "https://panel.example.com"
+          ]
+        },
+        "token": {
+          "type": "string"
+        },
+        "http_client": {
+          "$ref": "#/$defs/HTTPClientReference"
+        },
+        "websocket": {
+          "type": "boolean"
+        },
+        "poll_interval": {
+          "$ref": "#/$defs/Duration"
+        },
+        "push_interval": {
+          "$ref": "#/$defs/Duration"
+        }
+      },
+      "required": [
+        "tag",
+        "url",
+        "token"
+      ],
       "additionalProperties": false
     }
   }

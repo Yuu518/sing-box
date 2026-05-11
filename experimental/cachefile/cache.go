@@ -25,12 +25,14 @@ var (
 	bucketExpand   = []byte("group_expand")
 	bucketMode     = []byte("clash_mode")
 	bucketRuleSet  = []byte("rule_set")
+	bucketXboard   = []byte("xboard")
 
 	bucketNameList = []string{
 		string(bucketSelected),
 		string(bucketExpand),
 		string(bucketMode),
 		string(bucketRuleSet),
+		string(bucketXboard),
 		string(bucketRDRC),
 		string(bucketDNSCache),
 	}
@@ -470,5 +472,38 @@ func (c *CacheFile) SaveRuleSet(tag string, set *adapter.SavedBinary) error {
 			return err
 		}
 		return bucket.Put([]byte(tag), setBinary)
+	})
+}
+
+func (c *CacheFile) LoadXboardNode(tag string) *adapter.SavedBinary {
+	var savedNode adapter.SavedBinary
+	err := c.view(func(t *bbolt.Tx) error {
+		bucket := c.bucket(t, bucketXboard)
+		if bucket == nil {
+			return os.ErrNotExist
+		}
+		nodeBinary := bucket.Get([]byte(tag))
+		if len(nodeBinary) == 0 {
+			return os.ErrInvalid
+		}
+		return savedNode.UnmarshalBinary(nodeBinary)
+	})
+	if err != nil {
+		return nil
+	}
+	return &savedNode
+}
+
+func (c *CacheFile) SaveXboardNode(tag string, node *adapter.SavedBinary) error {
+	return c.batch(func(t *bbolt.Tx) error {
+		bucket, err := c.createBucket(t, bucketXboard)
+		if err != nil {
+			return err
+		}
+		nodeBinary, err := node.MarshalBinary()
+		if err != nil {
+			return err
+		}
+		return bucket.Put([]byte(tag), nodeBinary)
 	})
 }

@@ -55,6 +55,8 @@ type CacheFile interface {
 	StoreGroupExpand(group string, expand bool) error
 	LoadRuleSet(tag string) *SavedBinary
 	SaveRuleSet(tag string, set *SavedBinary) error
+	LoadXboardNode(tag string) *SavedBinary
+	SaveXboardNode(tag string, node *SavedBinary) error
 }
 
 type SavedBinary struct {

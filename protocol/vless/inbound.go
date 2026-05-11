@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
@@ -40,6 +41,7 @@ type Inbound struct {
 	logger    logger.ContextLogger
 	listener  *listener.Listener
 	users     []option.VLESSUser
+	access    sync.RWMutex
 	service   *vless.Service[int]
 	tlsConfig tls.ServerConfig
 	transport adapter.V2RayServerTransport
@@ -99,6 +101,21 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		ConnectionHandler: inbound,
 	})
 	return inbound, nil
+}
+
+func (h *Inbound) UpdateUsers(options any) error {
+	inboundOptions := options.(*option.VLESSInboundOptions)
+	h.service.UpdateUsers(common.MapIndexed(inboundOptions.Users, func(index int, _ option.VLESSUser) int {
+		return index
+	}), common.Map(inboundOptions.Users, func(it option.VLESSUser) string {
+		return it.UUID
+	}), common.Map(inboundOptions.Users, func(it option.VLESSUser) string {
+		return it.Flow
+	}))
+	h.access.Lock()
+	h.users = inboundOptions.Users
+	h.access.Unlock()
+	return nil
 }
 
 func (h *Inbound) Start(stage adapter.StartStage) error {
@@ -175,7 +192,7 @@ func (h *Inbound) newConnectionEx(ctx context.Context, conn net.Conn, metadata a
 		N.CloseOnHandshakeFailure(conn, onClose, os.ErrInvalid)
 		return
 	}
-	user := h.users[userIndex].Name
+	user := h.userName(userIndex)
 	if user == "" {
 		user = F.ToString(userIndex)
 	} else {
@@ -193,7 +210,7 @@ func (h *Inbound) newPacketConnectionEx(ctx context.Context, conn N.PacketConn, 
 		N.CloseOnHandshakeFailure(conn, onClose, os.ErrInvalid)
 		return
 	}
-	user := h.users[userIndex].Name
+	user := h.userName(userIndex)
 	if user == "" {
 		user = F.ToString(userIndex)
 	} else {
@@ -207,6 +224,15 @@ func (h *Inbound) newPacketConnectionEx(ctx context.Context, conn N.PacketConn, 
 		h.logger.InfoContext(ctx, "[", user, "] inbound packet connection to ", metadata.Destination)
 	}
 	h.router.RoutePacketConnectionEx(ctx, conn, metadata, onClose)
+}
+
+func (h *Inbound) userName(index int) string {
+	h.access.RLock()
+	defer h.access.RUnlock()
+	if index < 0 || index >= len(h.users) {
+		return ""
+	}
+	return h.users[index].Name
 }
 
 var _ adapter.V2RayServerTransportHandler = (*inboundTransportHandler)(nil)

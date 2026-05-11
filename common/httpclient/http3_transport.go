@@ -21,6 +21,7 @@ import (
 
 type http3Transport struct {
 	h3Transport *http3.Transport
+	h1Transport *http1Transport
 }
 
 type http3BrokenEntry struct {
@@ -107,6 +108,7 @@ func newHTTP3Transport(
 ) (innerTransport, error) {
 	return &http3Transport{
 		h3Transport: newHTTP3RoundTripper(rawDialer, baseTLSConfig, options),
+		h1Transport: newHTTP1Transport(rawDialer, baseTLSConfig),
 	}, nil
 }
 
@@ -126,10 +128,14 @@ func newHTTP3FallbackTransport(
 }
 
 func (t *http3Transport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Scheme != "https" || requestRequiresHTTP1(request) {
+		return t.h1Transport.RoundTrip(request)
+	}
 	return t.h3Transport.RoundTrip(request)
 }
 
 func (t *http3Transport) CloseIdleConnections() {
+	t.h1Transport.CloseIdleConnections()
 	t.h3Transport.CloseIdleConnections()
 }
 

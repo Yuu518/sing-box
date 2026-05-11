@@ -4,6 +4,7 @@ import (
 	std_bufio "bufio"
 	"context"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -32,6 +33,7 @@ type Inbound struct {
 	logger        logger.ContextLogger
 	listener      *listener.Listener
 	authenticator *auth.Authenticator
+	access        sync.RWMutex
 	udpTimeout    time.Duration
 }
 
@@ -59,6 +61,14 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	return inbound, nil
 }
 
+func (h *Inbound) UpdateUsers(options any) error {
+	inboundOptions := options.(*option.SocksInboundOptions)
+	h.access.Lock()
+	h.authenticator = auth.NewAuthenticator(inboundOptions.Users)
+	h.access.Unlock()
+	return nil
+}
+
 func (h *Inbound) Start(stage adapter.StartStage) error {
 	if stage != adapter.StartStateStart {
 		return nil
@@ -71,7 +81,8 @@ func (h *Inbound) Close() error {
 }
 
 func (h *Inbound) NewConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
-	err := socks.HandleConnectionEx(ctx, conn, std_bufio.NewReader(conn), h.authenticator, adapter.NewUpstreamHandler(metadata, h.newUserConnection, h.streamUserPacketConnection), h.listener, h.udpTimeout, metadata.Source, onClose)
+	authenticator := h.getAuthenticator()
+	err := socks.HandleConnectionEx(ctx, conn, std_bufio.NewReader(conn), authenticator, adapter.NewUpstreamHandler(metadata, h.newUserConnection, h.streamUserPacketConnection), h.listener, h.udpTimeout, metadata.Source, onClose)
 	N.CloseOnHandshakeFailure(conn, onClose, err)
 	if err != nil {
 		if E.IsClosedOrCanceled(err) {
@@ -80,6 +91,12 @@ func (h *Inbound) NewConnection(ctx context.Context, conn net.Conn, metadata ada
 			h.logger.ErrorContext(ctx, E.Cause(err, "process connection from ", metadata.Source))
 		}
 	}
+}
+
+func (h *Inbound) getAuthenticator() *auth.Authenticator {
+	h.access.RLock()
+	defer h.access.RUnlock()
+	return h.authenticator
 }
 
 func (h *Inbound) newUserConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {

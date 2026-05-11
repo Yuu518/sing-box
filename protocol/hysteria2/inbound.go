@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -42,6 +43,7 @@ type Inbound struct {
 	tlsConfig    tls.ServerConfig
 	service      *hysteria2.Service[int]
 	userNameList []string
+	access       sync.RWMutex
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.Hysteria2InboundOptions) (adapter.Inbound, error) {
@@ -220,6 +222,28 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	return inbound, nil
 }
 
+func (h *Inbound) UpdateUsers(options any) error {
+	inboundOptions := options.(*option.Hysteria2InboundOptions)
+	userList, userNameList, userPasswordList := buildUserList(inboundOptions.Users)
+	h.service.UpdateUsers(userList, userPasswordList)
+	h.access.Lock()
+	h.userNameList = userNameList
+	h.access.Unlock()
+	return nil
+}
+
+func buildUserList(users []option.Hysteria2User) ([]int, []string, []string) {
+	userList := make([]int, 0, len(users))
+	userNameList := make([]string, 0, len(users))
+	userPasswordList := make([]string, 0, len(users))
+	for index, user := range users {
+		userList = append(userList, index)
+		userNameList = append(userNameList, user.Name)
+		userPasswordList = append(userPasswordList, user.Password)
+	}
+	return userList, userNameList, userPasswordList
+}
+
 func (h *Inbound) NewConnectionEx(ctx context.Context, conn net.Conn, source M.Socksaddr, destination M.Socksaddr, onClose N.CloseHandlerFunc) {
 	ctx = log.ContextWithNewID(ctx)
 	var metadata adapter.InboundContext
@@ -233,7 +257,7 @@ func (h *Inbound) NewConnectionEx(ctx context.Context, conn net.Conn, source M.S
 	metadata.Destination = destination
 	h.logger.InfoContext(ctx, "inbound connection from ", metadata.Source)
 	userID, _ := auth.UserFromContext[int](ctx)
-	if userName := h.userNameList[userID]; userName != "" {
+	if userName := h.userName(userID); userName != "" {
 		metadata.User = userName
 		h.logger.InfoContext(ctx, "[", userName, "] inbound connection to ", metadata.Destination)
 	} else {
@@ -255,13 +279,22 @@ func (h *Inbound) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn, 
 	metadata.Destination = destination
 	h.logger.InfoContext(ctx, "inbound packet connection from ", metadata.Source)
 	userID, _ := auth.UserFromContext[int](ctx)
-	if userName := h.userNameList[userID]; userName != "" {
+	if userName := h.userName(userID); userName != "" {
 		metadata.User = userName
 		h.logger.InfoContext(ctx, "[", userName, "] inbound packet connection to ", metadata.Destination)
 	} else {
 		h.logger.InfoContext(ctx, "inbound packet connection to ", metadata.Destination)
 	}
 	h.router.RoutePacketConnectionEx(ctx, conn, metadata, onClose)
+}
+
+func (h *Inbound) userName(index int) string {
+	h.access.RLock()
+	defer h.access.RUnlock()
+	if index < 0 || index >= len(h.userNameList) {
+		return ""
+	}
+	return h.userNameList[index]
 }
 
 func (h *Inbound) Start(stage adapter.StartStage) error {
