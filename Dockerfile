@@ -4,6 +4,7 @@ COPY . /go/src/github.com/sagernet/sing-box
 WORKDIR /go/src/github.com/sagernet/sing-box
 ARG TARGETOS TARGETARCH
 ARG GOPROXY=""
+ARG BUILD_TAGS=""
 ENV GOPROXY ${GOPROXY}
 ENV CGO_ENABLED=0
 ENV GOOS=$TARGETOS
@@ -12,7 +13,7 @@ RUN set -ex \
     && apk add git build-base \
     && export COMMIT=$(git rev-parse --short HEAD) \
     && export VERSION=$(go run ./cmd/internal/read_tag) \
-    && export TAGS=$(cat release/DEFAULT_BUILD_TAGS_OTHERS) \
+    && export TAGS="${BUILD_TAGS:-$(cat release/DEFAULT_BUILD_TAGS_OTHERS)}" \
     && export LDFLAGS_SHARED=$(cat release/LDFLAGS) \
     && go build -v -trimpath -tags "$TAGS" \
         -o /go/bin/sing-box \
