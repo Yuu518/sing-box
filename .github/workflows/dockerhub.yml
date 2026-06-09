@@ -1,0 +1,75 @@
+name: Publish Docker Hub Image
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: read
+
+env:
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  dockerhub:
+    name: Build and push Docker Hub image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.1
+        with:
+          fetch-depth: 0
+
+
+      - name: setup go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: 1.26.7
+          cache: false
+
+      - name: Get sing-box version
+        id: sing-box
+        run: |
+          version=$(CGO_ENABLED=0 go run ./cmd/internal/read_tag)
+          echo version=$version >> $GITHUB_OUTPUT
+
+      - name: Set Docker tags
+        id: docker-tags
+        shell: bash
+        run: |
+          image="${{ secrets.DOCKERHUB_USERNAME }}/sing-box"
+          {
+            echo "tags<<EOF"
+            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              echo "${image}:latest"
+            else
+              echo "${image}:${{ steps.sing-box.outputs.version }}"
+              echo "${image}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ steps.docker-tags.outputs.tags }}
+          build-args: |
+            GOPROXY=${{ vars.GOPROXY }}
