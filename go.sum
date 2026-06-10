@@ -14,6 +14,8 @@ github.com/RyuaNerin/go-krypto v1.3.0 h1:smavTzSMAx8iuVlGb4pEwl9MD2qicqMzuXR2QWp
 github.com/RyuaNerin/go-krypto v1.3.0/go.mod h1:9R9TU936laAIqAmjcHo/LsaXYOZlymudOAxjaBf62UM=
 github.com/RyuaNerin/testingutil v0.1.0 h1:IYT6JL57RV3U2ml3dLHZsVtPOP6yNK7WUVdzzlpNrss=
 github.com/RyuaNerin/testingutil v0.1.0/go.mod h1:yTqj6Ta/ycHMPJHRyO12Mz3VrvTloWOsy23WOZH19AA=
+github.com/Yuu518/sing-tun v0.0.0-20261128035726-a77ce4ab702e h1:orAnGQ3a9dKLXfX46H1YBLW8PMixmCQ60UlE+laS7S4=
+github.com/Yuu518/sing-tun v0.0.0-20261128035726-a77ce4ab702e/go.mod h1:4zbFh2PyjeJikVCvcjdOC+wL71Jg6Kw+z5OKrLRdfOk=
 github.com/ajg/form v1.5.1 h1:t9c7v8JUKu/XxOGBU0yjNpaMloxGEJhUkqFRq0ibGeU=
 github.com/ajg/form v1.5.1/go.mod h1:uL1WgH+h2mgNtvBq0339dVnzXdBETtL2LeUXaIv25UY=
 github.com/akutz/memconn v0.1.0 h1:NawI0TORU4hcOMsMr11g7vwlCdkYeLKXBcxWu2W/P8A=
@@ -335,8 +337,6 @@ github.com/sagernet/sing-shadowtls v0.2.2-0.20261125124310-5028b2558ebf h1:1qCQP
 github.com/sagernet/sing-shadowtls v0.2.2-0.20261125124310-5028b2558ebf/go.mod h1:WyztWlXzZUKSu8uXVRfXTo4vgK2Jvpe5X6+sWRmUZrI=
 github.com/sagernet/sing-snell v0.0.0-20261125120456-6dfe590430a8 h1:tS4oi/f36knm2Q/X2aaPunk/dPbeF0GG+7rFOmWBfSQ=
 github.com/sagernet/sing-snell v0.0.0-20261125120456-6dfe590430a8/go.mod h1:9O6b0qRI/QjuycrYQVnftrRjztzHUV2qYuX6rmpDtCY=
-github.com/sagernet/sing-tun v0.9.7-0.20261126024559-1a13df1ac21f h1:f/7mUXgGb9t+VECBE8fSWxQyE54/FsdA6Wf++kMGoPY=
-github.com/sagernet/sing-tun v0.9.7-0.20261126024559-1a13df1ac21f/go.mod h1:4zbFh2PyjeJikVCvcjdOC+wL71Jg6Kw+z5OKrLRdfOk=
 github.com/sagernet/sing-usbip v0.0.0-20260817040617-28bd42667eca h1:5wA+IE0Fq1CGVLOgSpm0gKKZ03HzugcJ2JyhmDqeX6A=
 github.com/sagernet/sing-usbip v0.0.0-20260817040617-28bd42667eca/go.mod h1:ADAZZU85MnM91XNhd2TdZRTaIbA7RjTZuQ1KCHcUbNg=
 github.com/sagernet/sing-vmess v0.2.9-0.20261124075649-4acc92a6f6c6 h1:vyyQcx1p4dVam3oHPbxIUp/bzP1vKmHaidQ42iuRMa4=
