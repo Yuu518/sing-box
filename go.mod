@@ -82,6 +82,8 @@ require (
 	howett.net/plist v1.0.1
 )
 
+replace github.com/sagernet/sing-snell => github.com/reF1nd/sing-snell v0.0.0-20260929062538-94040c75f854
+
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	filippo.io/hpke v0.4.0 // indirect
