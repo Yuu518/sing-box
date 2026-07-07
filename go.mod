@@ -11,7 +11,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/creack/pty v1.1.24
 	github.com/cretz/bine v0.2.0
-	github.com/database64128/tfo-go/v2 v2.3.2
+	github.com/database64128/tfo-go/v2 v2.3.3
 	github.com/dblohm7/wingoes v0.0.0-20240119213807-a09d6be7affa
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/render v1.0.3
@@ -198,3 +198,5 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 	zombiezen.com/go/capnproto2 v2.18.2+incompatible // indirect
 )
+
+replace github.com/sagernet/sing-snell => github.com/reF1nd/sing-snell v0.0.0-20260830022900-9f5971f89117
