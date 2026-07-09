@@ -7,19 +7,25 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/sing-anytls"
 	"github.com/sagernet/sing-box/adapter"
 	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-mux"
 	"github.com/sagernet/sing-snell"
 	"github.com/sagernet/sing/common"
+	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/ntp"
 	"github.com/sagernet/sing/common/observable"
+	"github.com/sagernet/sing/service"
 )
+
+type UnifiedDelay bool
 
 type HistoryStorage struct {
 	access       sync.RWMutex
@@ -82,6 +88,7 @@ func (s *HistoryStorage) Close() error {
 }
 
 func URLTest(ctx context.Context, link string, detour N.Dialer) (uint16, error) {
+	unifiedDelay := bool(service.FromContext[UnifiedDelay](ctx))
 	multiplexOutbound, isMultiplexOutbound := common.Cast[adapter.OutboundWithMultiplex](detour)
 	if isMultiplexOutbound && multiplexOutbound.MultiplexEnabled() {
 		warmContext := adapter.ContextWithKeepSession(ctx)
@@ -89,15 +96,16 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (uint16, error) 
 		warmContext = anytls.ContextWithKeepSession(warmContext)
 		warmContext = contextWithQUICKeepSession(warmContext)
 		warmContext = snell.ContextWithKeepSession(warmContext)
-		_, err := urlTest(warmContext, link, detour)
+		_, err := urlTest(warmContext, link, detour, false)
 		if err != nil {
 			return 0, err
 		}
+		unifiedDelay = false
 	}
-	return urlTest(ctx, link, detour)
+	return urlTest(ctx, link, detour, unifiedDelay)
 }
 
-func urlTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err error) {
+func urlTest(ctx context.Context, link string, detour N.Dialer, unifiedDelay bool) (t uint16, err error) {
 	if link == "" {
 		link = "https://www.gstatic.com/generate_204"
 	}
@@ -129,9 +137,13 @@ func urlTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 	if err != nil {
 		return
 	}
+	var dialed atomic.Bool
 	client := http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if dialed.Swap(true) {
+					return nil, E.New("connection is not reusable")
+				}
 				return instance, nil
 			},
 			TLSClientConfig: &tls.Config{
@@ -150,6 +162,20 @@ func urlTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 		return
 	}
 	resp.Body.Close()
+	if unifiedDelay {
+		unifiedStart := time.Now()
+		var unifiedResponse *http.Response
+		unifiedResponse, err = client.Do(req.WithContext(ctx))
+		if err != nil {
+			if logFactory := service.FromContext[log.Factory](ctx); logFactory != nil {
+				logFactory.NewLogger("urltest").DebugContext(ctx, "unified delay unavailable for ", link, ": ", err)
+			}
+			err = nil
+		} else {
+			unifiedResponse.Body.Close()
+			start = unifiedStart
+		}
+	}
 	t = uint16(time.Since(start) / time.Millisecond)
 	return
 }
