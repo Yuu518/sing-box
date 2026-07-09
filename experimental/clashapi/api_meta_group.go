@@ -75,7 +75,7 @@ func getGroupDelay(server *Server) func(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), time.Millisecond*time.Duration(timeout))
+		ctx, cancel := context.WithTimeout(server.ctx, time.Millisecond*time.Duration(timeout))
 		defer cancel()
 
 		var result map[string]uint16

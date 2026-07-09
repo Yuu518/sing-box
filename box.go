@@ -181,6 +181,7 @@ func New(options Options) (*Box, error) {
 	if service.PtrFromContext[urltest.HistoryStorage](ctx) == nil {
 		ctx = service.ContextWithPtr(ctx, urltest.NewHistoryStorage())
 	}
+	service.MustRegister[urltest.UnifiedDelay](ctx, urltest.UnifiedDelay(experimentalOptions.URLTestUnifiedDelay))
 	platformInterface := service.FromContext[adapter.PlatformInterface](ctx)
 	var defaultLogWriter io.Writer
 	if platformInterface != nil {
