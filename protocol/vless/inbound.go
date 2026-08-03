@@ -46,6 +46,9 @@ type Inbound struct {
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.VLESSInboundOptions) (adapter.Inbound, error) {
+	if options.ListenUnix != "" {
+		return nil, E.New("`listen_unix` is not supported for VLESS inbounds")
+	}
 	inbound := &Inbound{
 		Adapter: inbound.NewAdapter(C.TypeVLESS, tag),
 		ctx:     ctx,

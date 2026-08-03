@@ -40,6 +40,7 @@ type Listener struct {
 	socketControl            control.Func
 
 	tcpListener          net.Listener
+	unixListener         net.Listener
 	systemProxy          settings.SystemProxy
 	udpConn              *net.UDPConn
 	udpAddr              M.Socksaddr
@@ -89,12 +90,26 @@ func New(
 }
 
 func (l *Listener) Start() error {
+	if l.listenOptions.ListenUnix != "" && !common.Contains(l.network, N.NetworkTCP) {
+		return E.New("`listen_unix` is only available for TCP-capable inbounds")
+	}
 	if common.Contains(l.network, N.NetworkTCP) {
-		_, err := l.ListenTCP()
+		tcpListener, err := l.ListenTCP()
 		if err != nil {
 			return err
 		}
-		go l.loopTCPIn()
+		var unixListener net.Listener
+		if l.listenOptions.ListenUnix != "" {
+			unixListener, err = l.ListenUnix()
+			if err != nil {
+				_ = tcpListener.Close()
+				return err
+			}
+		}
+		go l.loopTCPIn(tcpListener)
+		if unixListener != nil {
+			go l.loopTCPIn(unixListener)
+		}
 	}
 	if common.Contains(l.network, N.NetworkUDP) {
 		_, err := l.ListenUDP()
@@ -138,12 +153,17 @@ func (l *Listener) Close() error {
 	}
 	return E.Errors(err, common.Close(
 		l.tcpListener,
+		l.unixListener,
 		common.PtrOrNil(l.udpConn),
 	))
 }
 
 func (l *Listener) TCPListener() net.Listener {
 	return l.tcpListener
+}
+
+func (l *Listener) UnixListener() net.Listener {
+	return l.unixListener
 }
 
 func (l *Listener) UDPConn() *net.UDPConn {

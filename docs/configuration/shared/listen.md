@@ -32,6 +32,7 @@ icon: material/new-box
 {
   "listen": "",
   "listen_port": 0,
+  "listen_unix": "",
   "bind_interface": "",
   "routing_mark": 0,
   "reuse_addr": false,
@@ -66,6 +67,12 @@ Listen address.
 #### listen_port
 
 Listen port.
+
+#### listen_unix
+
+Path to an additional UNIX stream socket listener.
+
+Only available for TCP-capable inbounds other than VLESS. The regular TCP/UDP listeners configured by `listen` and `listen_port` remain enabled.
 
 #### bind_interface
 

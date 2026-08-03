@@ -85,8 +85,19 @@ func (l *Listener) ListenTCP() (net.Listener, error) {
 	return tcpListener, err
 }
 
-func (l *Listener) loopTCPIn() {
-	tcpListener := l.tcpListener
+func (l *Listener) ListenUnix() (net.Listener, error) {
+	unixListener, err := (&net.ListenConfig{}).Listen(l.ctx, "unix", l.listenOptions.ListenUnix)
+	if err != nil {
+		return nil, err
+	}
+	if !l.disableListenerLog {
+		l.logger.Info("unix server started at ", unixListener.Addr())
+	}
+	l.unixListener = unixListener
+	return unixListener, nil
+}
+
+func (l *Listener) loopTCPIn(tcpListener net.Listener) {
 	var metadata adapter.InboundContext
 	for {
 		conn, err := tcpListener.Accept()
@@ -99,14 +110,19 @@ func (l *Listener) loopTCPIn() {
 			if l.shutdown.Load() && E.IsClosed(err) {
 				return
 			}
-			l.tcpListener.Close()
+			tcpListener.Close()
 			l.logger.Error("tcp listener closed: ", err)
 			continue
 		}
 		//nolint:staticcheck
 		metadata.InboundDetour = l.listenOptions.Detour
-		metadata.Source = M.SocksaddrFromNet(conn.RemoteAddr()).Unwrap()
-		metadata.OriginDestination = M.SocksaddrFromNet(conn.LocalAddr()).Unwrap()
+		if conn.RemoteAddr().Network() == "unix" {
+			metadata.Source = M.Socksaddr{}
+			metadata.OriginDestination = M.Socksaddr{}
+		} else {
+			metadata.Source = M.SocksaddrFromNet(conn.RemoteAddr()).Unwrap()
+			metadata.OriginDestination = M.SocksaddrFromNet(conn.LocalAddr()).Unwrap()
+		}
 		ctx := log.ContextWithNewID(l.ctx)
 		if !l.disableConnectionLog {
 			l.logger.InfoContext(ctx, "inbound connection from ", metadata.Source)

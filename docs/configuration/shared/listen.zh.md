@@ -32,6 +32,7 @@ icon: material/new-box
 {
   "listen": "",
   "listen_port": 0,
+  "listen_unix": "",
   "bind_interface": "",
   "routing_mark": 0,
   "reuse_addr": false,
@@ -66,6 +67,12 @@ icon: material/new-box
 #### listen_port
 
 监听端口。
+
+#### listen_unix
+
+附加 UNIX 流套接字监听器的路径。
+
+仅适用于 VLESS 之外支持 TCP 的入站。由 `listen` 和 `listen_port` 配置的常规 TCP/UDP 监听器仍会启用。
 
 #### bind_interface
 

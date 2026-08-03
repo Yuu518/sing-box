@@ -79,6 +79,7 @@ type InboundOptions struct {
 type ListenOptions struct {
 	Listen               *badoption.Addr    `json:"listen,omitempty"`
 	ListenPort           uint16             `json:"listen_port,omitempty"`
+	ListenUnix           string             `json:"listen_unix,omitempty"`
 	BindInterface        string             `json:"bind_interface,omitempty"`
 	RoutingMark          FwMark             `json:"routing_mark,omitempty"`
 	ReuseAddr            bool               `json:"reuse_addr,omitempty"`
