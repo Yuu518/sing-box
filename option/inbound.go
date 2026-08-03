@@ -48,9 +48,13 @@ func (h *Inbound) UnmarshalJSONContext(ctx context.Context, content []byte) erro
 		return err
 	}
 	if listenWrapper, isListen := options.(ListenOptionsWrapper); isListen {
+		listenOptions := listenWrapper.TakeListenOptions()
 		//nolint:staticcheck
-		if listenWrapper.TakeListenOptions().InboundOptions != (InboundOptions{}) {
+		if listenOptions.InboundOptions != (InboundOptions{}) {
 			return E.New("legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions")
+		}
+		if listenOptions.ListenUnix != "" && (listenOptions.Listen != nil || listenOptions.ListenPort != 0) {
+			return E.New("listen_unix is conflict with listen/listen_port")
 		}
 	}
 	h.Options = options
@@ -79,6 +83,7 @@ type InboundOptions struct {
 type ListenOptions struct {
 	Listen               *badoption.Addr    `json:"listen,omitempty"`
 	ListenPort           uint16             `json:"listen_port,omitempty"`
+	ListenUnix           string             `json:"listen_unix,omitempty"`
 	BindInterface        string             `json:"bind_interface,omitempty"`
 	RoutingMark          FwMark             `json:"routing_mark,omitempty"`
 	ReuseAddr            bool               `json:"reuse_addr,omitempty"`
