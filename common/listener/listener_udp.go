@@ -25,6 +25,9 @@ func (l *Listener) ListenUDP() (net.PacketConn, error) {
 }
 
 func (l *Listener) ListenUDPWithConfig(listenConfig net.ListenConfig) (net.PacketConn, error) {
+	if l.listenOptions.ListenUnix != "" {
+		return nil, E.New("listen_unix is not supported by UDP listener")
+	}
 	bindAddr := M.SocksaddrFrom(l.listenOptions.Listen.Build(netip.AddrFrom4([4]byte{127, 0, 0, 1})), l.listenOptions.ListenPort)
 	var followInterface func(conn syscall.Conn)
 	if l.listenOptions.BindInterface != "" {

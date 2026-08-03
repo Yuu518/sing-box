@@ -96,6 +96,7 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		Network:           []string{N.NetworkTCP},
 		Listen:            options.ListenOptions,
 		ConnectionHandler: inbound,
+		AllowUnix:         true,
 	})
 	return inbound, nil
 }
