@@ -34,6 +34,7 @@ type Listener struct {
 	setSystemProxy           bool
 	systemProxySOCKS         bool
 	tproxy                   bool
+	allowUnix                bool
 
 	tcpListener          net.Listener
 	systemProxy          settings.SystemProxy
@@ -57,6 +58,7 @@ type Options struct {
 	SetSystemProxy           bool
 	SystemProxySOCKS         bool
 	TProxy                   bool
+	AllowUnix                bool
 }
 
 func New(
@@ -75,6 +77,7 @@ func New(
 		setSystemProxy:           options.SetSystemProxy,
 		systemProxySOCKS:         options.SystemProxySOCKS,
 		tproxy:                   options.TProxy,
+		allowUnix:                options.AllowUnix,
 	}
 }
 
