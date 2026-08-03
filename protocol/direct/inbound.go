@@ -14,6 +14,7 @@ import (
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
+	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/udpnat2"
@@ -35,6 +36,9 @@ type Inbound struct {
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.DirectInboundOptions) (adapter.Inbound, error) {
+	if options.ListenUnix != "" {
+		return nil, E.New("listen_unix is not supported by ", C.TypeDirect, " inbound")
+	}
 	options.UDPFragmentDefault = true
 	inbound := &Inbound{
 		Adapter: inbound.NewAdapter(C.TypeDirect, tag),

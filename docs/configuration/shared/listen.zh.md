@@ -4,6 +4,7 @@ icon: material/new-box
 
 !!! quote "sing-box 1.14.0 中的更改"
 
+    :material-plus: [listen_unix](#listen_unix)  
     :material-alert: [netns](#netns)
 
 !!! quote "sing-box 1.13.0 中的更改"
@@ -32,6 +33,7 @@ icon: material/new-box
 {
   "listen": "",
   "listen_port": 0,
+  "listen_unix": "",
   "bind_interface": "",
   "routing_mark": 0,
   "reuse_addr": false,
@@ -63,9 +65,27 @@ icon: material/new-box
 
 监听地址。
 
+如果设置了 `listen_unix`，则不需要。
+
 #### listen_port
 
 监听端口。
+
+#### listen_unix
+
+!!! question "自 sing-box 1.14.0 起"
+
+监听指定路径的 Unix 域套接字，而非 TCP 端口。
+
+与 `listen` 和 `listen_port` 冲突。
+
+仅支持流式套接字，因此无法进行 UDP 监听：基于 UDP 的入站 (`hysteria`、`hysteria2`、`tuic`) 与 QUIC 传输层将启动失败，同时监听两种网络的入站 (如 `shadowsocks`) 将仅监听 TCP。
+
+`direct`、`redirect`、`tproxy`、`tun` 与 `vless` 入站不支持，且与 `set_system_proxy` 不兼容。
+
+由于 Unix 套接字没有对端地址，接受的连接的来源地址为空，匹配来源地址的路由规则将永不匹配。
+
+非正常退出残留的套接字文件将被自动删除。在 Linux 上，以 `@` 开头的路径表示抽象套接字。套接字文件权限遵循进程 umask。
 
 #### bind_interface
 

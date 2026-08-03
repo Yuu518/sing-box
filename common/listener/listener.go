@@ -87,18 +87,25 @@ func (l *Listener) Start() error {
 		go l.loopTCPIn()
 	}
 	if common.Contains(l.network, N.NetworkUDP) {
-		_, err := l.ListenUDP()
-		if err != nil {
-			return err
-		}
-		l.packetOutboundClosed = make(chan struct{})
-		l.packetOutbound = make(chan *N.PacketBuffer, 64)
-		go l.loopUDPIn()
-		if !l.disablePacketOutput {
-			go l.loopUDPOut()
+		if l.listenOptions.ListenUnix != "" {
+			l.logger.Warn("udp listening is not supported by unix listener, ignored")
+		} else {
+			_, err := l.ListenUDP()
+			if err != nil {
+				return err
+			}
+			l.packetOutboundClosed = make(chan struct{})
+			l.packetOutbound = make(chan *N.PacketBuffer, 64)
+			go l.loopUDPIn()
+			if !l.disablePacketOutput {
+				go l.loopUDPOut()
+			}
 		}
 	}
 	if l.setSystemProxy {
+		if l.listenOptions.ListenUnix != "" {
+			return E.New("set_system_proxy is not supported by unix listener")
+		}
 		listenPort := M.SocksaddrFromNet(l.tcpListener.Addr()).Port
 		var listenAddrString string
 		listenAddr := l.listenOptions.Listen.Build(netip.IPv4Unspecified())
