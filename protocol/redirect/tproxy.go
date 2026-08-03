@@ -17,6 +17,7 @@ import (
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/control"
+	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/service"
@@ -36,6 +37,9 @@ type TProxy struct {
 }
 
 func NewTProxy(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TProxyInboundOptions) (adapter.Inbound, error) {
+	if options.ListenUnix != "" {
+		return nil, E.New("listen_unix is not supported by ", C.TypeTProxy, " inbound")
+	}
 	tproxy := &TProxy{
 		Adapter: inbound.NewAdapter(C.TypeTProxy, tag),
 		ctx:     ctx,

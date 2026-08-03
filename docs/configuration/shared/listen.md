@@ -4,6 +4,7 @@ icon: material/new-box
 
 !!! quote "Changes in sing-box 1.14.0"
 
+    :material-plus: [listen_unix](#listen_unix)  
     :material-alert: [netns](#netns)
 
 !!! quote "Changes in sing-box 1.13.0"
@@ -32,6 +33,7 @@ icon: material/new-box
 {
   "listen": "",
   "listen_port": 0,
+  "listen_unix": "",
   "bind_interface": "",
   "routing_mark": 0,
   "reuse_addr": false,
@@ -63,9 +65,27 @@ icon: material/new-box
 
 Listen address.
 
+Not required if `listen_unix` is set.
+
 #### listen_port
 
 Listen port.
+
+#### listen_unix
+
+!!! question "Since sing-box 1.14.0"
+
+Listen on a unix domain socket at the given path instead of a TCP port.
+
+Conflicts with `listen` and `listen_port`.
+
+Only stream sockets are supported, hence UDP listening is unavailable: UDP based inbounds (`hysteria`, `hysteria2`, `tuic`) and QUIC transports will fail to start, and inbounds accepting both networks (like `shadowsocks`) will only listen on TCP.
+
+Not supported by the `direct`, `redirect`, `tproxy`, `tun` and `vless` inbounds, and not compatible with `set_system_proxy`.
+
+Since a unix socket has no peer address, the source address of accepted connections is empty, and route rules matching on the source address will never match.
+
+A stale socket file left behind by an unclean shutdown is removed automatically. On Linux, a path starting with `@` refers to an abstract socket. Socket file permissions follow the process umask.
 
 #### bind_interface
 

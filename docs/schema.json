@@ -4157,6 +4157,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -5766,6 +5769,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -5918,6 +5924,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -6017,6 +6026,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -6101,6 +6113,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -6248,6 +6263,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -6493,6 +6511,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -6577,6 +6598,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -6686,6 +6710,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -6755,6 +6782,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -6882,6 +6912,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -6995,6 +7028,9 @@
                   "minimum": 0,
                   "maximum": 65535
                 },
+                "listen_unix": {
+                  "type": "string"
+                },
                 "bind_interface": {
                   "type": "string"
                 },
@@ -7091,6 +7127,9 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 65535
+                },
+                "listen_unix": {
+                  "type": "string"
                 },
                 "bind_interface": {
                   "type": "string"
@@ -7189,6 +7228,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -7267,6 +7309,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -7382,6 +7427,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -7475,6 +7523,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -7993,6 +8044,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -8077,6 +8131,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -16134,6 +16191,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -16265,6 +16325,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -16352,6 +16415,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -16829,6 +16895,9 @@
                       "minimum": 0,
                       "maximum": 65535
                     },
+                    "listen_unix": {
+                      "type": "string"
+                    },
                     "bind_interface": {
                       "type": "string"
                     },
@@ -16903,6 +16972,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -17013,6 +17085,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -17145,6 +17220,9 @@
               "minimum": 0,
               "maximum": 65535
             },
+            "listen_unix": {
+              "type": "string"
+            },
             "bind_interface": {
               "type": "string"
             },
@@ -17214,6 +17292,9 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 65535
+            },
+            "listen_unix": {
+              "type": "string"
             },
             "bind_interface": {
               "type": "string"
@@ -17434,6 +17515,9 @@
                   "minimum": 0,
                   "maximum": 65535
                 },
+                "listen_unix": {
+                  "type": "string"
+                },
                 "bind_interface": {
                   "type": "string"
                 },
@@ -17512,6 +17596,9 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 65535
+                },
+                "listen_unix": {
+                  "type": "string"
                 },
                 "bind_interface": {
                   "type": "string"

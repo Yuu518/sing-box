@@ -11,6 +11,7 @@ import (
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
+	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
@@ -27,6 +28,9 @@ type Redirect struct {
 }
 
 func NewRedirect(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.RedirectInboundOptions) (adapter.Inbound, error) {
+	if options.ListenUnix != "" {
+		return nil, E.New("listen_unix is not supported by ", C.TypeRedirect, " inbound")
+	}
 	redirect := &Redirect{
 		Adapter: inbound.NewAdapter(C.TypeRedirect, tag),
 		router:  router,

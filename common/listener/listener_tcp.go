@@ -25,6 +25,9 @@ func (l *Listener) ListenTCP() (net.Listener, error) {
 	if l.listenOptions.ProxyProtocol || l.listenOptions.ProxyProtocolAcceptNoHeader {
 		return nil, E.New("Proxy Protocol is deprecated and removed in sing-box 1.6.0")
 	}
+	if l.listenOptions.ListenUnix != "" {
+		return l.listenUnix()
+	}
 	var err error
 	bindAddr := M.SocksaddrFrom(l.listenOptions.Listen.Build(netip.AddrFrom4([4]byte{127, 0, 0, 1})), l.listenOptions.ListenPort)
 	var listenConfig net.ListenConfig
@@ -102,10 +105,20 @@ func (l *Listener) loopTCPIn() {
 		}
 		//nolint:staticcheck
 		metadata.InboundDetour = l.listenOptions.Detour
-		metadata.Source = M.SocksaddrFromNet(conn.RemoteAddr()).Unwrap()
-		metadata.OriginDestination = M.SocksaddrFromNet(conn.LocalAddr()).Unwrap()
+		if l.listenOptions.ListenUnix != "" {
+			// Unix socket addresses cannot be represented as a Socksaddr.
+			metadata.Source = M.Socksaddr{}
+			metadata.OriginDestination = M.Socksaddr{}
+		} else {
+			metadata.Source = M.SocksaddrFromNet(conn.RemoteAddr()).Unwrap()
+			metadata.OriginDestination = M.SocksaddrFromNet(conn.LocalAddr()).Unwrap()
+		}
 		ctx := log.ContextWithNewID(l.ctx)
-		l.logger.InfoContext(ctx, "inbound connection from ", metadata.Source)
+		if metadata.Source.IsValid() {
+			l.logger.InfoContext(ctx, "inbound connection from ", metadata.Source)
+		} else {
+			l.logger.InfoContext(ctx, "inbound connection from unix socket")
+		}
 		go l.connHandler.NewConnection(ctx, conn, metadata, nil)
 	}
 }
