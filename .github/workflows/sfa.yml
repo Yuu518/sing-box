@@ -1,0 +1,216 @@
+name: Build SFA
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.sing-box.outputs.version }}
+      go-version: ${{ steps.setup-go.outputs.go-version }}
+    steps:
+      - uses: actions/checkout@v6.0.1
+        with:
+          fetch-depth: 0
+
+      - name: setup go
+        id: setup-go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Get sing-box version
+        id: sing-box
+        run: |
+          version=$(CGO_ENABLED=0 go run ./cmd/internal/read_tag)
+          echo version=$version >> $GITHUB_OUTPUT
+
+  libbox:
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: android/arm64
+            abi: arm64-v8a
+          - target: android/arm
+            abi: armeabi-v7a
+          - target: android/amd64
+            abi: x86_64
+          - target: android/386
+            abi: x86
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      - name: setup go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ needs.prepare.outputs.go-version }}
+          cache: false
+
+      - name: setup java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: setup ndk
+        uses: nttld/setup-ndk@v1.5.0
+        id: setup-ndk
+        with:
+          ndk-version: r29
+          local-cache: true
+
+      - name: build libbox
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAGS: with_quic,with_dhcp,with_wireguard,with_tailscale,with_utls,with_clash_api,with_gvisor,with_cloudflared,with_naive_outbound,with_ebpf
+        run: |
+          make lib_install
+          make ebpf_generate
+          gomobile bind -target=${{ matrix.target }} -trimpath -buildvcs=false -androidapi 24 -javapkg=io.nekohasekai -libname=box -tags ${TAGS} -ldflags "-checklinkname=0 -X github.com/sagernet/sing-box/constant.Version=${VERSION} -s -w -buildid=" ./experimental/libbox
+
+      - name: upload libbox
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: libbox-${{ matrix.abi }}
+          path: libbox.aar
+          if-no-files-found: error
+          compression-level: 0
+
+  build:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - libbox
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GO_VERSION: ${{ needs.prepare.outputs.go-version }}
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      - name: checkout app repository
+        uses: actions/checkout@v6.0.1
+        with:
+          path: sfa
+          repository: SagerNet/sing-box-for-android
+          ref: 'dev'
+          submodules: recursive
+
+      - name: setup go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ needs.prepare.outputs.go-version }}
+          cache: false
+
+      - name: download libbox
+        uses: actions/download-artifact@v6.0.0
+        with:
+          pattern: libbox-*
+          path: aar
+
+      - name: merge libbox
+        run: go run ./cmd/internal/merge_aar -output sfa/app/libs/libbox.aar aar/libbox-*/libbox.aar
+
+      - name: setup java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: setup ndk
+        uses: nttld/setup-ndk@v1.5.0
+        id: setup-ndk
+        with:
+          ndk-version: r29
+          local-cache: true
+
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: sfa
+          cache-read-only: false
+
+      - name: build app
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          echo "${{ secrets.SIGN_KEY }}" | base64 -d > sfa/app/release.keystore
+          cd sfa
+          sed -i 's/-Xmx8192m/-Xmx8192m -XX:+UseParallelGC/' gradle.properties
+          echo "org.gradle.caching=true" >> gradle.properties
+          echo "org.gradle.parallel=true" >> gradle.properties
+          cat > version.properties << EOF
+          VERSION_NAME=${VERSION}
+          VERSION_CODE=$(date +%Y%m%d%H)
+          GO_VERSION=${GO_VERSION}
+          EOF
+          chmod +x ./gradlew
+          ./gradlew :app:assembleOtherRelease
+
+      - name: upload arm64-v8a apk
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: sfa-${{ env.VERSION }}-arm64-v8a
+          path: sfa/app/build/outputs/apk/other/release/*-arm64-v8a.apk
+          compression-level: 0
+
+      - name: upload armeabi-v7a apk
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: sfa-${{ env.VERSION }}-armeabi-v7a
+          path: sfa/app/build/outputs/apk/other/release/*-armeabi-v7a.apk
+          compression-level: 0
+
+      - name: upload x86_64 apk
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: sfa-${{ env.VERSION }}-x86_64
+          path: sfa/app/build/outputs/apk/other/release/*-x86_64.apk
+          compression-level: 0
+
+      - name: upload x86 apk
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: sfa-${{ env.VERSION }}-x86
+          path: sfa/app/build/outputs/apk/other/release/*-x86.apk
+          compression-level: 0
+
+      - name: upload universal apk
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: sfa-${{ env.VERSION }}-universal
+          path: sfa/app/build/outputs/apk/other/release/*-universal.apk
+          compression-level: 0
+
+      - name: Generate version metadata
+        run: |
+          echo "{\"version_code\": $(grep VERSION_CODE sfa/version.properties | cut -d'=' -f2), \"version_name\": \"${VERSION}\"}" > SFA-version-metadata.json
+
+      - name: Set build time
+        run: echo "DATE=$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S %Z')" >> "$GITHUB_ENV"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: ${{ env.VERSION }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Build time: ${{ env.DATE }}
+          files: |
+            sfa/app/build/outputs/apk/other/release/*.apk
+            SFA-version-metadata.json
+          prerelease: true
