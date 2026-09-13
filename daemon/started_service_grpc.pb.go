@@ -2,7 +2,6 @@ package daemon
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -34,6 +33,9 @@ const (
 	StartedService_GetDeprecatedWarnings_FullMethodName          = "/daemon.StartedService/GetDeprecatedWarnings"
 	StartedService_GetStartedAt_FullMethodName                   = "/daemon.StartedService/GetStartedAt"
 	StartedService_SubscribeOutbounds_FullMethodName             = "/daemon.StartedService/SubscribeOutbounds"
+	StartedService_SubscribeProxyProviders_FullMethodName        = "/daemon.StartedService/SubscribeProxyProviders"
+	StartedService_UpdateProxyProvider_FullMethodName            = "/daemon.StartedService/UpdateProxyProvider"
+	StartedService_HealthCheckProxyProvider_FullMethodName       = "/daemon.StartedService/HealthCheckProxyProvider"
 	StartedService_StartNetworkQualityTest_FullMethodName        = "/daemon.StartedService/StartNetworkQualityTest"
 	StartedService_StartSTUNTest_FullMethodName                  = "/daemon.StartedService/StartSTUNTest"
 	StartedService_SubscribeTailscaleStatus_FullMethodName       = "/daemon.StartedService/SubscribeTailscaleStatus"
@@ -82,6 +84,9 @@ type StartedServiceClient interface {
 	GetDeprecatedWarnings(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DeprecatedWarnings, error)
 	GetStartedAt(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*StartedAt, error)
 	SubscribeOutbounds(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[OutboundList], error)
+	SubscribeProxyProviders(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ProxyProviderList], error)
+	UpdateProxyProvider(ctx context.Context, in *ProxyProviderRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	HealthCheckProxyProvider(ctx context.Context, in *ProxyProviderHealthCheckRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	StartNetworkQualityTest(ctx context.Context, in *NetworkQualityTestRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NetworkQualityTestProgress], error)
 	StartSTUNTest(ctx context.Context, in *STUNTestRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[STUNTestProgress], error)
 	SubscribeTailscaleStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TailscaleStatusUpdate], error)
@@ -368,9 +373,48 @@ func (c *startedServiceClient) SubscribeOutbounds(ctx context.Context, in *empty
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type StartedService_SubscribeOutboundsClient = grpc.ServerStreamingClient[OutboundList]
 
+func (c *startedServiceClient) SubscribeProxyProviders(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ProxyProviderList], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[7], StartedService_SubscribeProxyProviders_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[emptypb.Empty, ProxyProviderList]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type StartedService_SubscribeProxyProvidersClient = grpc.ServerStreamingClient[ProxyProviderList]
+
+func (c *startedServiceClient) UpdateProxyProvider(ctx context.Context, in *ProxyProviderRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, StartedService_UpdateProxyProvider_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *startedServiceClient) HealthCheckProxyProvider(ctx context.Context, in *ProxyProviderHealthCheckRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, StartedService_HealthCheckProxyProvider_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *startedServiceClient) StartNetworkQualityTest(ctx context.Context, in *NetworkQualityTestRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NetworkQualityTestProgress], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[7], StartedService_StartNetworkQualityTest_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[8], StartedService_StartNetworkQualityTest_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +433,7 @@ type StartedService_StartNetworkQualityTestClient = grpc.ServerStreamingClient[N
 
 func (c *startedServiceClient) StartSTUNTest(ctx context.Context, in *STUNTestRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[STUNTestProgress], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[8], StartedService_StartSTUNTest_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[9], StartedService_StartSTUNTest_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +452,7 @@ type StartedService_StartSTUNTestClient = grpc.ServerStreamingClient[STUNTestPro
 
 func (c *startedServiceClient) SubscribeTailscaleStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TailscaleStatusUpdate], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[9], StartedService_SubscribeTailscaleStatus_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[10], StartedService_SubscribeTailscaleStatus_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +471,7 @@ type StartedService_SubscribeTailscaleStatusClient = grpc.ServerStreamingClient[
 
 func (c *startedServiceClient) StartTailscalePing(ctx context.Context, in *TailscalePingRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TailscalePingResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[10], StartedService_StartTailscalePing_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[11], StartedService_StartTailscalePing_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +520,7 @@ func (c *startedServiceClient) GetTailscaleCertificate(ctx context.Context, in *
 
 func (c *startedServiceClient) StartTailscaleSSHSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TailscaleSSHClientMessage, TailscaleSSHServerMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[11], StartedService_StartTailscaleSSHSession_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[12], StartedService_StartTailscaleSSHSession_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -489,7 +533,7 @@ type StartedService_StartTailscaleSSHSessionClient = grpc.BidiStreamingClient[Ta
 
 func (c *startedServiceClient) SubscribeTaildropInbox(ctx context.Context, in *SubscribeTaildropInboxRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TaildropInbox], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[12], StartedService_SubscribeTaildropInbox_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[13], StartedService_SubscribeTaildropInbox_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -518,7 +562,7 @@ func (c *startedServiceClient) MarkTaildropInboxRead(ctx context.Context, in *Ma
 
 func (c *startedServiceClient) SendTaildropFiles(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TaildropSendClientMessage, TaildropSendServerMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[13], StartedService_SendTaildropFiles_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[14], StartedService_SendTaildropFiles_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +575,7 @@ type StartedService_SendTaildropFilesClient = grpc.BidiStreamingClient[TaildropS
 
 func (c *startedServiceClient) DownloadTaildropFile(ctx context.Context, in *DownloadTaildropFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DownloadTaildropFileChunk], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[14], StartedService_DownloadTaildropFile_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[15], StartedService_DownloadTaildropFile_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +614,7 @@ func (c *startedServiceClient) CancelTaildropReceiving(ctx context.Context, in *
 
 func (c *startedServiceClient) ProvideUSBDevices(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[USBProviderMessage, USBServerMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[15], StartedService_ProvideUSBDevices_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[16], StartedService_ProvideUSBDevices_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -583,7 +627,7 @@ type StartedService_ProvideUSBDevicesClient = grpc.BidiStreamingClient[USBProvid
 
 func (c *startedServiceClient) SubscribeUSBIPServerStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[USBIPServerStatusUpdate], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[16], StartedService_SubscribeUSBIPServerStatus_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[17], StartedService_SubscribeUSBIPServerStatus_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +646,7 @@ type StartedService_SubscribeUSBIPServerStatusClient = grpc.ServerStreamingClien
 
 func (c *startedServiceClient) SubscribeOpenConnectStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[OpenConnectStatusUpdate], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[17], StartedService_SubscribeOpenConnectStatus_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[18], StartedService_SubscribeOpenConnectStatus_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -641,7 +685,7 @@ func (c *startedServiceClient) CancelOpenConnectAuthChallenge(ctx context.Contex
 
 func (c *startedServiceClient) SubscribeOpenVPNStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[OpenVPNStatusUpdate], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[18], StartedService_SubscribeOpenVPNStatus_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[19], StartedService_SubscribeOpenVPNStatus_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -680,7 +724,7 @@ func (c *startedServiceClient) CancelOpenVPNChallenge(ctx context.Context, in *O
 
 func (c *startedServiceClient) SubscribeNotifications(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NotificationEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[19], StartedService_SubscribeNotifications_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &StartedService_ServiceDesc.Streams[20], StartedService_SubscribeNotifications_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -720,6 +764,9 @@ type StartedServiceServer interface {
 	GetDeprecatedWarnings(context.Context, *emptypb.Empty) (*DeprecatedWarnings, error)
 	GetStartedAt(context.Context, *emptypb.Empty) (*StartedAt, error)
 	SubscribeOutbounds(*emptypb.Empty, grpc.ServerStreamingServer[OutboundList]) error
+	SubscribeProxyProviders(*emptypb.Empty, grpc.ServerStreamingServer[ProxyProviderList]) error
+	UpdateProxyProvider(context.Context, *ProxyProviderRequest) (*emptypb.Empty, error)
+	HealthCheckProxyProvider(context.Context, *ProxyProviderHealthCheckRequest) (*emptypb.Empty, error)
 	StartNetworkQualityTest(*NetworkQualityTestRequest, grpc.ServerStreamingServer[NetworkQualityTestProgress]) error
 	StartSTUNTest(*STUNTestRequest, grpc.ServerStreamingServer[STUNTestProgress]) error
 	SubscribeTailscaleStatus(*emptypb.Empty, grpc.ServerStreamingServer[TailscaleStatusUpdate]) error
@@ -756,167 +803,135 @@ type UnimplementedStartedServiceServer struct{}
 func (UnimplementedStartedServiceServer) GetVersion(context.Context, *emptypb.Empty) (*Version, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetVersion not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeServiceStatus(*emptypb.Empty, grpc.ServerStreamingServer[ServiceStatus]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeServiceStatus not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeLog(*emptypb.Empty, grpc.ServerStreamingServer[Log]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeLog not implemented")
 }
-
 func (UnimplementedStartedServiceServer) GetDefaultLogLevel(context.Context, *emptypb.Empty) (*DefaultLogLevel, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDefaultLogLevel not implemented")
 }
-
 func (UnimplementedStartedServiceServer) ClearLogs(context.Context, *emptypb.Empty) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearLogs not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeStatus(*SubscribeStatusRequest, grpc.ServerStreamingServer[Status]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeStatus not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeGroups(*emptypb.Empty, grpc.ServerStreamingServer[Groups]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeGroups not implemented")
 }
-
 func (UnimplementedStartedServiceServer) GetClashModeStatus(context.Context, *emptypb.Empty) (*ClashModeStatus, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetClashModeStatus not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeClashMode(*emptypb.Empty, grpc.ServerStreamingServer[ClashMode]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeClashMode not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SetClashMode(context.Context, *ClashMode) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetClashMode not implemented")
 }
-
 func (UnimplementedStartedServiceServer) URLTest(context.Context, *URLTestRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method URLTest not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SelectOutbound(context.Context, *SelectOutboundRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SelectOutbound not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SetGroupExpand(context.Context, *SetGroupExpandRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetGroupExpand not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeConnections(*SubscribeConnectionsRequest, grpc.ServerStreamingServer[ConnectionEvents]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeConnections not implemented")
 }
-
 func (UnimplementedStartedServiceServer) CloseConnection(context.Context, *CloseConnectionRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CloseConnection not implemented")
 }
-
 func (UnimplementedStartedServiceServer) CloseAllConnections(context.Context, *emptypb.Empty) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CloseAllConnections not implemented")
 }
-
 func (UnimplementedStartedServiceServer) GetDeprecatedWarnings(context.Context, *emptypb.Empty) (*DeprecatedWarnings, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDeprecatedWarnings not implemented")
 }
-
 func (UnimplementedStartedServiceServer) GetStartedAt(context.Context, *emptypb.Empty) (*StartedAt, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetStartedAt not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeOutbounds(*emptypb.Empty, grpc.ServerStreamingServer[OutboundList]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeOutbounds not implemented")
 }
-
+func (UnimplementedStartedServiceServer) SubscribeProxyProviders(*emptypb.Empty, grpc.ServerStreamingServer[ProxyProviderList]) error {
+	return status.Error(codes.Unimplemented, "method SubscribeProxyProviders not implemented")
+}
+func (UnimplementedStartedServiceServer) UpdateProxyProvider(context.Context, *ProxyProviderRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateProxyProvider not implemented")
+}
+func (UnimplementedStartedServiceServer) HealthCheckProxyProvider(context.Context, *ProxyProviderHealthCheckRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method HealthCheckProxyProvider not implemented")
+}
 func (UnimplementedStartedServiceServer) StartNetworkQualityTest(*NetworkQualityTestRequest, grpc.ServerStreamingServer[NetworkQualityTestProgress]) error {
 	return status.Error(codes.Unimplemented, "method StartNetworkQualityTest not implemented")
 }
-
 func (UnimplementedStartedServiceServer) StartSTUNTest(*STUNTestRequest, grpc.ServerStreamingServer[STUNTestProgress]) error {
 	return status.Error(codes.Unimplemented, "method StartSTUNTest not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeTailscaleStatus(*emptypb.Empty, grpc.ServerStreamingServer[TailscaleStatusUpdate]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeTailscaleStatus not implemented")
 }
-
 func (UnimplementedStartedServiceServer) StartTailscalePing(*TailscalePingRequest, grpc.ServerStreamingServer[TailscalePingResponse]) error {
 	return status.Error(codes.Unimplemented, "method StartTailscalePing not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SetTailscaleExitNode(context.Context, *SetTailscaleExitNodeRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetTailscaleExitNode not implemented")
 }
-
 func (UnimplementedStartedServiceServer) TailscaleLogout(context.Context, *TailscaleLogoutRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method TailscaleLogout not implemented")
 }
-
 func (UnimplementedStartedServiceServer) GetTailscaleCertificate(context.Context, *TailscaleCertificateRequest) (*TailscaleCertificate, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetTailscaleCertificate not implemented")
 }
-
 func (UnimplementedStartedServiceServer) StartTailscaleSSHSession(grpc.BidiStreamingServer[TailscaleSSHClientMessage, TailscaleSSHServerMessage]) error {
 	return status.Error(codes.Unimplemented, "method StartTailscaleSSHSession not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeTaildropInbox(*SubscribeTaildropInboxRequest, grpc.ServerStreamingServer[TaildropInbox]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeTaildropInbox not implemented")
 }
-
 func (UnimplementedStartedServiceServer) MarkTaildropInboxRead(context.Context, *MarkTaildropInboxReadRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method MarkTaildropInboxRead not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SendTaildropFiles(grpc.BidiStreamingServer[TaildropSendClientMessage, TaildropSendServerMessage]) error {
 	return status.Error(codes.Unimplemented, "method SendTaildropFiles not implemented")
 }
-
 func (UnimplementedStartedServiceServer) DownloadTaildropFile(*DownloadTaildropFileRequest, grpc.ServerStreamingServer[DownloadTaildropFileChunk]) error {
 	return status.Error(codes.Unimplemented, "method DownloadTaildropFile not implemented")
 }
-
 func (UnimplementedStartedServiceServer) DeleteTaildropFile(context.Context, *DeleteTaildropFileRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteTaildropFile not implemented")
 }
-
 func (UnimplementedStartedServiceServer) CancelTaildropReceiving(context.Context, *CancelTaildropReceivingRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelTaildropReceiving not implemented")
 }
-
 func (UnimplementedStartedServiceServer) ProvideUSBDevices(grpc.BidiStreamingServer[USBProviderMessage, USBServerMessage]) error {
 	return status.Error(codes.Unimplemented, "method ProvideUSBDevices not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeUSBIPServerStatus(*emptypb.Empty, grpc.ServerStreamingServer[USBIPServerStatusUpdate]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeUSBIPServerStatus not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeOpenConnectStatus(*emptypb.Empty, grpc.ServerStreamingServer[OpenConnectStatusUpdate]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeOpenConnectStatus not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubmitOpenConnectAuthResponse(context.Context, *OpenConnectAuthResponseSubmission) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitOpenConnectAuthResponse not implemented")
 }
-
 func (UnimplementedStartedServiceServer) CancelOpenConnectAuthChallenge(context.Context, *OpenConnectAuthChallengeCancel) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelOpenConnectAuthChallenge not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeOpenVPNStatus(*emptypb.Empty, grpc.ServerStreamingServer[OpenVPNStatusUpdate]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeOpenVPNStatus not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubmitOpenVPNChallengeResponse(context.Context, *OpenVPNChallengeSubmission) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitOpenVPNChallengeResponse not implemented")
 }
-
 func (UnimplementedStartedServiceServer) CancelOpenVPNChallenge(context.Context, *OpenVPNChallengeCancel) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelOpenVPNChallenge not implemented")
 }
-
 func (UnimplementedStartedServiceServer) SubscribeNotifications(*emptypb.Empty, grpc.ServerStreamingServer[NotificationEvent]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeNotifications not implemented")
 }
@@ -1233,6 +1248,53 @@ func _StartedService_SubscribeOutbounds_Handler(srv interface{}, stream grpc.Ser
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type StartedService_SubscribeOutboundsServer = grpc.ServerStreamingServer[OutboundList]
+
+func _StartedService_SubscribeProxyProviders_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(emptypb.Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(StartedServiceServer).SubscribeProxyProviders(m, &grpc.GenericServerStream[emptypb.Empty, ProxyProviderList]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type StartedService_SubscribeProxyProvidersServer = grpc.ServerStreamingServer[ProxyProviderList]
+
+func _StartedService_UpdateProxyProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProxyProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StartedServiceServer).UpdateProxyProvider(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StartedService_UpdateProxyProvider_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StartedServiceServer).UpdateProxyProvider(ctx, req.(*ProxyProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StartedService_HealthCheckProxyProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProxyProviderHealthCheckRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StartedServiceServer).HealthCheckProxyProvider(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StartedService_HealthCheckProxyProvider_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StartedServiceServer).HealthCheckProxyProvider(ctx, req.(*ProxyProviderHealthCheckRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _StartedService_StartNetworkQualityTest_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(NetworkQualityTestRequest)
@@ -1601,6 +1663,14 @@ var StartedService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _StartedService_GetStartedAt_Handler,
 		},
 		{
+			MethodName: "UpdateProxyProvider",
+			Handler:    _StartedService_UpdateProxyProvider_Handler,
+		},
+		{
+			MethodName: "HealthCheckProxyProvider",
+			Handler:    _StartedService_HealthCheckProxyProvider_Handler,
+		},
+		{
 			MethodName: "SetTailscaleExitNode",
 			Handler:    _StartedService_SetTailscaleExitNode_Handler,
 		},
@@ -1675,6 +1745,11 @@ var StartedService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeOutbounds",
 			Handler:       _StartedService_SubscribeOutbounds_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubscribeProxyProviders",
+			Handler:       _StartedService_SubscribeProxyProviders_Handler,
 			ServerStreams: true,
 		},
 		{

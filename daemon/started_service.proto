@@ -29,6 +29,9 @@ service StartedService {
   rpc GetStartedAt(google.protobuf.Empty) returns(StartedAt) {}
 
   rpc SubscribeOutbounds(google.protobuf.Empty) returns (stream OutboundList) {}
+  rpc SubscribeProxyProviders(google.protobuf.Empty) returns (stream ProxyProviderList) {}
+  rpc UpdateProxyProvider(ProxyProviderRequest) returns (google.protobuf.Empty) {}
+  rpc HealthCheckProxyProvider(ProxyProviderHealthCheckRequest) returns (google.protobuf.Empty) {}
   rpc StartNetworkQualityTest(NetworkQualityTestRequest) returns (stream NetworkQualityTestProgress) {}
   rpc StartSTUNTest(STUNTestRequest) returns (stream STUNTestProgress) {}
   rpc SubscribeTailscaleStatus(google.protobuf.Empty) returns (stream TailscaleStatusUpdate) {}
@@ -57,6 +60,7 @@ service StartedService {
 message Version {
   string version = 1;
   int32 apiVersion = 2;
+  bool proxyProvidersSupported = 3;
 }
 
 message ServiceStatus {
@@ -128,10 +132,51 @@ message GroupItem {
   string type = 2;
   int64 urlTestTime = 3;
   int32 urlTestDelay = 4;
+  bool udp = 5;
+  reserved 6;
+  // Most recent IPv6-only probe; false on failure or when untested.
+  // Groups report the currently selected underlying node.
+  bool ipv6 = 7;
 }
 
 message URLTestRequest {
   string outboundTag = 1;
+  // Independent from latency; a failed probe clears a prior positive result.
+  bool ipv6Test = 2;
+  // Empty URL and zero timeout preserve server defaults.
+  string url = 3;
+  int32 timeoutMs = 4;
+}
+
+message ProxyProviderList {
+  repeated ProxyProvider providers = 1;
+}
+
+message ProxyProvider {
+  string tag = 1;
+  string type = 2;
+  int64 updatedAt = 3; // Unix milliseconds; zero when unavailable.
+  repeated GroupItem outbounds = 4;
+  bool updatable = 5;
+  ProxyProviderSubscription subscription = 6;
+}
+
+message ProxyProviderSubscription {
+  int64 upload = 1;
+  int64 download = 2;
+  int64 total = 3;
+  int64 expire = 4; // Unix seconds; zero when unavailable.
+}
+
+message ProxyProviderRequest {
+  string tag = 1;
+}
+
+message ProxyProviderHealthCheckRequest {
+  string tag = 1;
+  bool ipv6Test = 2;
+  string url = 3;
+  int32 timeoutMs = 4;
 }
 
 message SelectOutboundRequest {

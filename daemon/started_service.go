@@ -131,8 +131,9 @@ func (s *StartedService) SetOOMKillerOptions(enabled bool, killerDisabled bool, 
 
 func (s *StartedService) GetVersion(ctx context.Context, empty *emptypb.Empty) (*Version, error) {
 	return &Version{
-		Version:    C.Version,
-		ApiVersion: APIVersion,
+		Version:                 C.Version,
+		ApiVersion:              APIVersion,
+		ProxyProvidersSupported: true,
 	}, nil
 }
 
@@ -578,7 +579,6 @@ func (s *StartedService) SubscribeGroups(empty *emptypb.Empty, server grpc.Serve
 }
 
 func (s *StartedService) readGroups() *Groups {
-	historyStorage := s.instance.urlTestHistoryStorage
 	boxService := s.instance
 	outbounds := boxService.outboundManager.Outbounds()
 	var iGroups []adapter.OutboundGroup
@@ -606,14 +606,7 @@ func (s *StartedService) readGroups() *Groups {
 				continue
 			}
 
-			var item GroupItem
-			item.Tag = itemTag
-			item.Type = itemOutbound.Type()
-			if history := historyStorage.LoadURLTestHistory(group.RealTag(boxService.outboundManager, itemOutbound)); history != nil {
-				item.UrlTestTime = history.Time.Unix()
-				item.UrlTestDelay = int32(history.Delay)
-			}
-			g.Items = append(g.Items, &item)
+			g.Items = append(g.Items, boxService.outboundInfo(itemOutbound))
 		}
 		if len(g.Items) == 0 {
 			continue
@@ -704,6 +697,10 @@ func (s *StartedService) SetClashMode(ctx context.Context, request *ClashMode) (
 }
 
 func (s *StartedService) URLTest(ctx context.Context, request *URLTestRequest) (*emptypb.Empty, error) {
+	options, err := parseProbeOptions(request.Url, request.TimeoutMs, request.Ipv6Test)
+	if err != nil {
+		return nil, err
+	}
 	s.serviceAccess.RLock()
 	if s.serviceStatus.Status != ServiceStatus_STARTED {
 		s.serviceAccess.RUnlock()
@@ -715,6 +712,14 @@ func (s *StartedService) URLTest(ctx context.Context, request *URLTestRequest) (
 	outbound, isLoaded := boxService.outboundManager.Outbound(outboundTag)
 	if !isLoaded {
 		return nil, status.Error(codes.NotFound, "outbound not found: "+outboundTag)
+	}
+	if request.Url != "" || request.TimeoutMs != 0 || request.Ipv6Test {
+		probeCtx, cancel := boxService.probeContext(s.ctx)
+		go func() {
+			defer cancel()
+			_ = boxService.probeOutbounds(probeCtx, []adapter.Outbound{outbound}, options)
+		}()
+		return &emptypb.Empty{}, nil
 	}
 	historyStorage := boxService.urlTestHistoryStorage
 	urlTest, isURLTest := outbound.(*group.URLTest)
@@ -1165,28 +1170,11 @@ func (s *StartedService) SubscribeOutbounds(_ *emptypb.Empty, server grpc.Server
 		s.serviceAccess.RUnlock()
 		var list OutboundList
 		if started {
-			historyStorage := boxService.urlTestHistoryStorage
 			for _, ob := range boxService.outboundManager.Outbounds() {
-				item := &GroupItem{
-					Tag:  ob.Tag(),
-					Type: ob.Type(),
-				}
-				if history := historyStorage.LoadURLTestHistory(group.RealTag(boxService.outboundManager, ob)); history != nil {
-					item.UrlTestTime = history.Time.Unix()
-					item.UrlTestDelay = int32(history.Delay)
-				}
-				list.Outbounds = append(list.Outbounds, item)
+				list.Outbounds = append(list.Outbounds, boxService.outboundInfo(ob))
 			}
 			for _, ep := range boxService.endpointManager.Endpoints() {
-				item := &GroupItem{
-					Tag:  ep.Tag(),
-					Type: ep.Type(),
-				}
-				if history := historyStorage.LoadURLTestHistory(group.RealTag(boxService.outboundManager, ep)); history != nil {
-					item.UrlTestTime = history.Time.Unix()
-					item.UrlTestDelay = int32(history.Delay)
-				}
-				list.Outbounds = append(list.Outbounds, item)
+				list.Outbounds = append(list.Outbounds, boxService.outboundInfo(ep))
 			}
 		}
 		err = server.Send(&list)
