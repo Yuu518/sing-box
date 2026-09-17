@@ -29,6 +29,12 @@ service StartedService {
   rpc GetStartedAt(google.protobuf.Empty) returns(StartedAt) {}
 
   rpc SubscribeOutbounds(google.protobuf.Empty) returns (stream OutboundList) {}
+  rpc SubscribeProxyProviders(google.protobuf.Empty) returns (stream ProxyProviderList) {}
+  rpc UpdateProxyProvider(ProxyProviderRequest) returns (google.protobuf.Empty) {}
+  rpc HealthCheckProxyProvider(ProxyProviderHealthCheckRequest) returns (google.protobuf.Empty) {}
+  rpc SubscribeRuleProviders(google.protobuf.Empty) returns (stream RuleProviderList) {}
+  rpc SubscribeRules(google.protobuf.Empty) returns (stream RuleList) {}
+  rpc UpdateRuleProvider(RuleProviderRequest) returns (google.protobuf.Empty) {}
   rpc StartNetworkQualityTest(NetworkQualityTestRequest) returns (stream NetworkQualityTestProgress) {}
   rpc StartSTUNTest(STUNTestRequest) returns (stream STUNTestProgress) {}
   rpc SubscribeTailscaleStatus(google.protobuf.Empty) returns (stream TailscaleStatusUpdate) {}
@@ -57,6 +63,9 @@ service StartedService {
 message Version {
   string version = 1;
   int32 apiVersion = 2;
+  bool proxyProvidersSupported = 3;
+  bool ruleProvidersSupported = 4;
+  bool rulesSupported = 5;
 }
 
 message ServiceStatus {
@@ -128,10 +137,75 @@ message GroupItem {
   string type = 2;
   int64 urlTestTime = 3;
   int32 urlTestDelay = 4;
+  bool udp = 5;
+  bool xudp = 6;
+  bool ipv6 = 7;
 }
 
 message URLTestRequest {
   string outboundTag = 1;
+  bool ipv6Test = 2;
+  string url = 3;
+  int32 timeoutMs = 4;
+}
+
+message ProxyProviderList {
+  repeated ProxyProvider providers = 1;
+}
+
+message ProxyProvider {
+  string tag = 1;
+  string type = 2;
+  int64 updatedAt = 3;
+  repeated GroupItem outbounds = 4;
+  bool updatable = 5;
+  ProxyProviderSubscription subscription = 6;
+}
+
+message ProxyProviderSubscription {
+  int64 upload = 1;
+  int64 download = 2;
+  int64 total = 3;
+  int64 expire = 4;
+}
+
+message ProxyProviderRequest {
+  string tag = 1;
+}
+
+message RuleList {
+  repeated RouteRule rules = 1;
+}
+
+message RouteRule {
+  string type = 1;
+  string condition = 2;
+  string action = 3;
+  string actionDescription = 4;
+}
+
+message RuleProviderList {
+  repeated RuleProvider providers = 1;
+}
+
+message RuleProvider {
+  string tag = 1;
+  string type = 2;
+  string format = 3;
+  uint64 ruleCount = 4;
+  int64 updatedAt = 5;
+  bool updatable = 6;
+}
+
+message RuleProviderRequest {
+  string tag = 1;
+}
+
+message ProxyProviderHealthCheckRequest {
+  string tag = 1;
+  bool ipv6Test = 2;
+  string url = 3;
+  int32 timeoutMs = 4;
 }
 
 message SelectOutboundRequest {

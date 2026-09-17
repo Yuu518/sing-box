@@ -14,7 +14,6 @@ import (
 	"github.com/sagernet/sing-box/common/networkquality"
 	"github.com/sagernet/sing-box/common/stun"
 	"github.com/sagernet/sing-box/common/trafficcontrol"
-	"github.com/sagernet/sing-box/common/urltest"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/experimental/deprecated"
 	"github.com/sagernet/sing-box/experimental/locale"
@@ -33,7 +32,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-const APIVersion = 4
+const APIVersion = 7
 
 const (
 	urlTestPushMinInterval = 250 * time.Millisecond
@@ -132,8 +131,11 @@ func (s *StartedService) SetOOMKillerOptions(enabled bool, killerDisabled bool, 
 
 func (s *StartedService) GetVersion(ctx context.Context, empty *emptypb.Empty) (*Version, error) {
 	return &Version{
-		Version:    C.Version,
-		ApiVersion: APIVersion,
+		Version:                 C.Version,
+		ApiVersion:              APIVersion,
+		ProxyProvidersSupported: true,
+		RuleProvidersSupported:  true,
+		RulesSupported:          true,
 	}, nil
 }
 
@@ -317,6 +319,9 @@ func (s *StartedService) StartOrReloadService(ctx context.Context, profileConten
 func (s *StartedService) Close() {
 	s.serviceAccess.Lock()
 	s.closed = true
+	if s.instance != nil && s.instance.apiURLTest != nil {
+		s.instance.apiURLTest.cancel()
+	}
 	s.serviceAccess.Unlock()
 	s.serviceStatusSubscriber.Close()
 	s.logSubscriber.Close()
@@ -586,7 +591,6 @@ func (s *StartedService) SubscribeGroups(empty *emptypb.Empty, server grpc.Serve
 }
 
 func (s *StartedService) readGroups() *Groups {
-	historyStorage := s.instance.urlTestHistoryStorage
 	boxService := s.instance
 	outbounds := boxService.outboundManager.Outbounds()
 	var iGroups []adapter.OutboundGroup
@@ -614,14 +618,7 @@ func (s *StartedService) readGroups() *Groups {
 				continue
 			}
 
-			var item GroupItem
-			item.Tag = itemTag
-			item.Type = itemOutbound.Type()
-			if history := historyStorage.LoadURLTestHistory(group.RealTag(boxService.outboundManager, itemOutbound)); history != nil {
-				item.UrlTestTime = history.Time.Unix()
-				item.UrlTestDelay = int32(history.Delay)
-			}
-			g.Items = append(g.Items, &item)
+			g.Items = append(g.Items, boxService.apiGroupItem(itemOutbound))
 		}
 		if len(g.Items) == 0 {
 			continue
@@ -712,42 +709,29 @@ func (s *StartedService) SetClashMode(ctx context.Context, request *ClashMode) (
 }
 
 func (s *StartedService) URLTest(ctx context.Context, request *URLTestRequest) (*emptypb.Empty, error) {
-	s.serviceAccess.RLock()
-	if s.serviceStatus.Status != ServiceStatus_STARTED {
-		s.serviceAccess.RUnlock()
-		return nil, os.ErrInvalid
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
 	}
-	boxService := s.instance
-	s.serviceAccess.RUnlock()
-	outboundTag := request.OutboundTag
-	outbound, isLoaded := boxService.outboundManager.Outbound(outboundTag)
-	if !isLoaded {
-		return nil, status.Error(codes.NotFound, "outbound not found: "+outboundTag)
+	options, err := parseAPIURLTestOptions(request.GetUrl(), request.GetTimeoutMs(), request.GetIpv6Test())
+	if err != nil {
+		return nil, err
 	}
-	historyStorage := boxService.urlTestHistoryStorage
-	urlTest, isURLTest := outbound.(*group.URLTest)
-	outboundGroup, isOutboundGroup := outbound.(adapter.OutboundGroup)
-	if isURLTest {
-		go urlTest.CheckOutbounds()
-	} else if isOutboundGroup {
-		outbounds := common.FilterNotNil(common.Map(outboundGroup.All(), func(it string) adapter.Outbound {
-			itOutbound, _ := boxService.outboundManager.Outbound(it)
-			return itOutbound
-		}))
-		go group.URLTestOutbounds(boxService.ctx, boxService.outboundManager, historyStorage, boxService.logFactory.Logger(), outbounds, "", 0, true)
-	} else {
-		go func() {
-			t, err := urltest.URLTest(boxService.ctx, "", outbound)
-			if err != nil {
-				historyStorage.StoreURLTestHistoryForOutbound(outbound, nil)
-			} else {
-				historyStorage.StoreURLTestHistoryForOutbound(outbound, &adapter.URLTestHistory{
-					Time:  time.Now(),
-					Delay: t,
-				})
-			}
-		}()
+	instance, err := s.apiInstance()
+	if err != nil {
+		return nil, err
 	}
+	if request.GetOutboundTag() == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing outbound tag")
+	}
+	outbound, loaded := instance.apiOutbound(request.GetOutboundTag())
+	if !loaded {
+		return nil, status.Error(codes.NotFound, "outbound not found: "+request.GetOutboundTag())
+	}
+	run, err := instance.apiURLTest.prepare([]adapter.Outbound{outbound})
+	if err != nil {
+		return nil, err
+	}
+	go run(instance.apiURLTest.ctx, options)
 	return &emptypb.Empty{}, nil
 }
 
@@ -1173,28 +1157,11 @@ func (s *StartedService) SubscribeOutbounds(_ *emptypb.Empty, server grpc.Server
 		s.serviceAccess.RUnlock()
 		var list OutboundList
 		if started {
-			historyStorage := boxService.urlTestHistoryStorage
 			for _, ob := range boxService.outboundManager.Outbounds() {
-				item := &GroupItem{
-					Tag:  ob.Tag(),
-					Type: ob.Type(),
-				}
-				if history := historyStorage.LoadURLTestHistory(group.RealTag(boxService.outboundManager, ob)); history != nil {
-					item.UrlTestTime = history.Time.Unix()
-					item.UrlTestDelay = int32(history.Delay)
-				}
-				list.Outbounds = append(list.Outbounds, item)
+				list.Outbounds = append(list.Outbounds, boxService.apiGroupItem(ob))
 			}
 			for _, ep := range boxService.endpointManager.Endpoints() {
-				item := &GroupItem{
-					Tag:  ep.Tag(),
-					Type: ep.Type(),
-				}
-				if history := historyStorage.LoadURLTestHistory(group.RealTag(boxService.outboundManager, ep)); history != nil {
-					item.UrlTestTime = history.Time.Unix()
-					item.UrlTestDelay = int32(history.Delay)
-				}
-				list.Outbounds = append(list.Outbounds, item)
+				list.Outbounds = append(list.Outbounds, boxService.apiGroupItem(ep))
 			}
 		}
 		err = server.Send(&list)

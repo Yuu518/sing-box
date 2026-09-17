@@ -36,6 +36,9 @@ type Instance struct {
 	urlTestHistoryStorage *urltest.HistoryStorage
 	outboundManager       adapter.OutboundManager
 	endpointManager       adapter.EndpointManager
+	providerManager       adapter.ProviderManager
+	router                adapter.Router
+	apiURLTest            *apiURLTester
 	logFactory            log.Factory
 }
 
@@ -142,13 +145,16 @@ func (s *StartedService) newInstance(ctx context.Context, profileContent string,
 	i.cacheFile = service.FromContext[adapter.CacheFile](ctx)
 	i.outboundManager = service.FromContext[adapter.OutboundManager](ctx)
 	i.endpointManager = service.FromContext[adapter.EndpointManager](ctx)
+	i.providerManager = service.FromContext[adapter.ProviderManager](ctx)
+	i.router = service.FromContext[adapter.Router](ctx)
+	i.apiURLTest = newAPIURLTester(i)
 	i.logFactory = boxInstance.LogFactory()
 	log.SetStdLogger(boxInstance.LogFactory().Logger())
 	return i, nil
 }
 
 func attachInstance(ctx context.Context) *Instance {
-	return &Instance{
+	i := &Instance{
 		ctx:                   ctx,
 		connectionManager:     service.FromContext[adapter.ConnectionManager](ctx),
 		clashMode:             service.PtrFromContext[clashmode.Manager](ctx),
@@ -158,8 +164,12 @@ func attachInstance(ctx context.Context) *Instance {
 		urlTestHistoryStorage: service.PtrFromContext[urltest.HistoryStorage](ctx),
 		outboundManager:       service.FromContext[adapter.OutboundManager](ctx),
 		endpointManager:       service.FromContext[adapter.EndpointManager](ctx),
+		providerManager:       service.FromContext[adapter.ProviderManager](ctx),
+		router:                service.FromContext[adapter.Router](ctx),
 		logFactory:            service.FromContext[log.Factory](ctx),
 	}
+	i.apiURLTest = newAPIURLTester(i)
+	return i
 }
 
 func (i *Instance) Start() error {
@@ -167,6 +177,7 @@ func (i *Instance) Start() error {
 }
 
 func (i *Instance) Close() error {
+	i.apiURLTest.cancel()
 	i.cancel()
 	if i.pauseCallback != nil {
 		i.pauseManager.UnregisterCallback(i.pauseCallback)
