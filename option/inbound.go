@@ -89,6 +89,7 @@ type ListenOptions struct {
 	Listen               *badoption.Addr    `json:"listen,omitempty"`
 	ListenPort           uint16             `json:"listen_port,omitempty"`
 	ListenUnix           string             `json:"listen_unix,omitempty"`
+	RealIPHeader         string             `json:"real_ip_header,omitempty"`
 	BindInterface        string             `json:"bind_interface,omitempty"`
 	RoutingMark          FwMark             `json:"routing_mark,omitempty"`
 	ReuseAddr            bool               `json:"reuse_addr,omitempty"`
@@ -191,4 +192,14 @@ func (o *ListenOptions) TakeListenOptions() ListenOptions {
 
 func (o *ListenOptions) ReplaceListenOptions(options ListenOptions) {
 	*o = options
+}
+
+func (o ListenOptions) EffectiveRealIPHeader() string {
+	if o.RealIPHeader != "" {
+		return o.RealIPHeader
+	}
+	if o.ListenUnix != "" {
+		return "CF-Connecting-IP"
+	}
+	return ""
 }

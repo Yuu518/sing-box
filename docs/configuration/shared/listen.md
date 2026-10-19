@@ -5,6 +5,7 @@ icon: material/new-box
 !!! quote "Changes in sing-box 1.14.0"
 
     :material-plus: [listen_unix](#listen_unix)  
+    :material-plus: [real_ip_header](#real_ip_header)  
     :material-alert: [netns](#netns)
 
 !!! quote "Changes in sing-box 1.13.0"
@@ -34,6 +35,7 @@ icon: material/new-box
   "listen": "",
   "listen_port": 0,
   "listen_unix": "",
+  "real_ip_header": "",
   "bind_interface": "",
   "routing_mark": 0,
   "reuse_addr": false,
@@ -86,6 +88,18 @@ Only stream sockets are supported, hence the QUIC transport will fail to start.
 Since a unix socket has no peer address, the source address of accepted connections is empty, and route rules matching on the source address will never match.
 
 A stale socket file left behind by an unclean shutdown is removed automatically. On Linux, a path starting with `@` refers to an abstract socket. Socket file permissions follow the process umask.
+
+#### real_ip_header
+
+!!! question "Since sing-box 1.14.0"
+
+HTTP header to read the client address from in HTTP-based V2Ray transports (`ws`, `httpupgrade`, `http`, `grpc`).
+
+The first address in the header is used. When the header is missing or invalid, the transport falls back to `X-Forwarded-For`
+and then to the peer address.
+
+Defaults to `CF-Connecting-IP` when `listen_unix` is set, otherwise empty. Only set it when every request passes through a
+reverse proxy that overwrites the header, since clients can send arbitrary headers.
 
 #### bind_interface
 

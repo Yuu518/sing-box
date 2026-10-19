@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/realip"
 	"github.com/sagernet/sing-box/common/tls"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
@@ -65,6 +66,12 @@ func (s *Server) Tun(server GunService_TunServer) error {
 				if originAddr.IsValid() {
 					source = originAddr.Unwrap()
 				}
+			}
+		}
+		if header := realip.HeaderFromContext(s.ctx); header != "" {
+			if trusted, ok := realip.ParseHeaderValue(strings.Join(grpcMetadata.Get(header), ",")); ok {
+				trusted.Port = source.Port
+				source = trusted.Unwrap()
 			}
 		}
 	}

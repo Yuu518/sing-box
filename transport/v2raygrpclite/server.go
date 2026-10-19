@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/realip"
 	"github.com/sagernet/sing-box/common/tls"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
@@ -19,7 +20,6 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	aTLS "github.com/sagernet/sing/common/tls"
-	sHttp "github.com/sagernet/sing/protocol/http"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c" //nolint:staticcheck
@@ -35,6 +35,7 @@ type Server struct {
 	h2Server   *http2.Server
 	h2cHandler http.Handler
 	path       string
+	realIP     string
 }
 
 func NewServer(ctx context.Context, logger logger.ContextLogger, options option.V2RayGRPCOptions, tlsConfig tls.ServerConfig, handler adapter.V2RayServerTransportHandler) (*Server, error) {
@@ -43,6 +44,7 @@ func NewServer(ctx context.Context, logger logger.ContextLogger, options option.
 		logger:    logger,
 		handler:   handler,
 		path:      "/" + options.ServiceName + "/Tun",
+		realIP:    realip.HeaderFromContext(ctx),
 		h2Server: &http2.Server{
 			IdleTimeout: time.Duration(options.IdleTimeout),
 		},
@@ -83,7 +85,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(http.StatusOK)
 	done := make(chan struct{})
 	conn := v2rayhttp.NewHTTP2Wrapper(newGunConn(request.Body, writer, writer.(http.Flusher)))
-	s.handler.NewConnectionEx(request.Context(), conn, sHttp.SourceAddress(request), M.Socksaddr{}, N.OnceClose(func(it error) {
+	s.handler.NewConnectionEx(request.Context(), conn, realip.SourceAddress(request, s.realIP), M.Socksaddr{}, N.OnceClose(func(it error) {
 		close(done)
 	}))
 	<-done

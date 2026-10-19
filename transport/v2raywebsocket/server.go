@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/realip"
 	"github.com/sagernet/sing-box/common/tls"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
@@ -22,7 +23,6 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	aTLS "github.com/sagernet/sing/common/tls"
-	sHttp "github.com/sagernet/sing/protocol/http"
 	"github.com/sagernet/ws"
 )
 
@@ -38,6 +38,7 @@ type Server struct {
 	maxEarlyData        uint32
 	earlyDataHeaderName string
 	upgrader            ws.HTTPUpgrader
+	realIPHeader        string
 }
 
 func NewServer(ctx context.Context, logger logger.ContextLogger, options option.V2RayWebsocketOptions, tlsConfig tls.ServerConfig, handler adapter.V2RayServerTransportHandler) (*Server, error) {
@@ -49,6 +50,7 @@ func NewServer(ctx context.Context, logger logger.ContextLogger, options option.
 		path:                options.Path,
 		maxEarlyData:        options.MaxEarlyData,
 		earlyDataHeaderName: options.EarlyDataHeaderName,
+		realIPHeader:        realip.HeaderFromContext(ctx),
 		upgrader: ws.HTTPUpgrader{
 			Timeout: C.TCPTimeout,
 			Header:  options.Headers.Build(),
@@ -110,7 +112,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		s.invalidRequest(writer, request, 0, E.Cause(err, "upgrade websocket connection"))
 		return
 	}
-	source := sHttp.SourceAddress(request)
+	source := realip.SourceAddress(request, s.realIPHeader)
 	conn = NewConn(wsConn, source, ws.StateServerSide)
 	if len(earlyData) > 0 {
 		conn = bufio.NewCachedConn(conn, buf.As(earlyData))

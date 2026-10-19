@@ -5,6 +5,7 @@ icon: material/new-box
 !!! quote "sing-box 1.14.0 中的更改"
 
     :material-plus: [listen_unix](#listen_unix)  
+    :material-plus: [real_ip_header](#real_ip_header)  
     :material-alert: [netns](#netns)
 
 !!! quote "sing-box 1.13.0 中的更改"
@@ -34,6 +35,7 @@ icon: material/new-box
   "listen": "",
   "listen_port": 0,
   "listen_unix": "",
+  "real_ip_header": "",
   "bind_interface": "",
   "routing_mark": 0,
   "reuse_addr": false,
@@ -86,6 +88,16 @@ icon: material/new-box
 由于 Unix 套接字没有对端地址，接受的连接的来源地址为空，匹配来源地址的路由规则将永不匹配。
 
 非正常退出残留的套接字文件将被自动删除。在 Linux 上，以 `@` 开头的路径表示抽象套接字。套接字文件权限遵循进程 umask。
+
+#### real_ip_header
+
+!!! question "自 sing-box 1.14.0 起"
+
+HTTP 类 V2Ray 传输（`ws`、`httpupgrade`、`http`、`grpc`）从该请求头读取客户端地址。
+
+取请求头中的第一个地址。请求头缺失或无效时，回落到 `X-Forwarded-For`，再回落到对端地址。
+
+设置了 `listen_unix` 时默认为 `CF-Connecting-IP`，否则为空。客户端可以伪造任意请求头，仅当所有请求都经过会覆盖该请求头的反向代理时才应设置。
 
 #### bind_interface
 
