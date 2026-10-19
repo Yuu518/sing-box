@@ -55,6 +55,9 @@ icon: material/new-box
         "network": [
           "tcp"
         ],
+        "auth_user_regex": [
+          "-surge$"
+        ],
         "auth_user": [
           "usera",
           "userb"
@@ -225,6 +228,12 @@ Tags of [Inbound](/configuration/inbound/).
 4 or 6.
 
 Not limited if empty.
+
+#### auth_user_regex
+
+!!! question "Since sing-box 1.14.0"
+
+Match the inbound username with regular expressions.
 
 #### auth_user
 

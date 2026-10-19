@@ -55,6 +55,9 @@ icon: material/new-box
         "network": [
           "tcp"
         ],
+        "auth_user_regex": [
+          "-surge$"
+        ],
         "auth_user": [
           "usera",
           "userb"
@@ -223,6 +226,12 @@ icon: material/new-box
 4 或 6。
 
 默认不限制。
+
+#### auth_user_regex
+
+!!! question "自 sing-box 1.14.0 起"
+
+使用正则表达式匹配入站用户名。
 
 #### auth_user
 

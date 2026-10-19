@@ -159,6 +159,14 @@ func NewDefaultDNSRule(ctx context.Context, logger log.ContextLogger, options op
 		rule.items = append(rule.items, item)
 		rule.allItems = append(rule.allItems, item)
 	}
+	if len(options.AuthUserRegex) > 0 {
+		item, err := NewAuthUserRegexItem(options.AuthUserRegex)
+		if err != nil {
+			return nil, E.Cause(err, "auth_user_regex")
+		}
+		rule.items = append(rule.items, item)
+		rule.allItems = append(rule.allItems, item)
+	}
 	if len(options.Protocol) > 0 {
 		item := NewProtocolItem(options.Protocol)
 		rule.items = append(rule.items, item)
