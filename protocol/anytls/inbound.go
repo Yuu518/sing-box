@@ -79,6 +79,17 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	return inbound, nil
 }
 
+func (h *Inbound) ReplaceUsers(options any) error {
+	inboundOptions, loaded := options.(*option.AnyTLSInboundOptions)
+	if !loaded {
+		return E.New("anytls: unexpected options type")
+	}
+	h.service.UpdateUsers(common.Map(inboundOptions.Users, func(it option.AnyTLSUser) anytls.User {
+		return (anytls.User)(it)
+	}))
+	return nil
+}
+
 func (h *Inbound) Start(stage adapter.StartStage, scope *adapter.Scope) error {
 	if stage != adapter.StartStateStart {
 		return nil

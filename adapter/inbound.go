@@ -21,6 +21,11 @@ type Inbound interface {
 	Tag() string
 }
 
+type UserManagedInbound interface {
+	Inbound
+	ReplaceUsers(options any) error
+}
+
 type TCPInjectableInbound interface {
 	Inbound
 	ConnectionHandler

@@ -29,7 +29,7 @@ func TestV6InboundEnablesQUICProxyCompatibility(t *testing.T) {
 		options       option.AbstractSnellInboundOptions
 		clientPSK     []byte
 		clientUserKey []byte
-		expectedUser  int
+		expectedUser  string
 		hasUser       bool
 	}{
 		{
@@ -46,7 +46,7 @@ func TestV6InboundEnablesQUICProxyCompatibility(t *testing.T) {
 			},
 			clientPSK:     []byte("test-password"),
 			clientUserKey: []byte("alice-key"),
-			expectedUser:  0,
+			expectedUser:  "alice",
 			hasUser:       true,
 		},
 		{
@@ -57,7 +57,7 @@ func TestV6InboundEnablesQUICProxyCompatibility(t *testing.T) {
 			},
 			clientPSK:     []byte("alice-password"),
 			clientUserKey: []byte("surge-client"),
-			expectedUser:  0,
+			expectedUser:  "alice",
 			hasUser:       true,
 		},
 	} {
@@ -92,7 +92,7 @@ func TestV6InboundEnablesQUICProxyCompatibility(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, target, session.Target())
 			require.Equal(t, payload, decodedPayload)
-			user, loaded := auth.UserFromContext[int](session.Context(context.Background()))
+			user, loaded := auth.UserFromContext[string](session.Context(context.Background()))
 			require.Equal(t, testCase.hasUser, loaded)
 			if testCase.hasUser {
 				require.Equal(t, testCase.expectedUser, user)

@@ -9,6 +9,7 @@ import (
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/common/listener"
 	"github.com/sagernet/sing-box/common/uot"
+	"github.com/sagernet/sing-box/common/userkey"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
@@ -16,10 +17,10 @@ import (
 	snellprotocol "github.com/sagernet/sing-snell"
 	"github.com/sagernet/sing-snell/snellv5"
 	"github.com/sagernet/sing-snell/snellv6"
+	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/auth"
 	"github.com/sagernet/sing/common/buf"
 	E "github.com/sagernet/sing/common/exceptions"
-	F "github.com/sagernet/sing/common/format"
 	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -38,7 +39,11 @@ type Inbound struct {
 	logger     logger.ContextLogger
 	listener   *listener.Listener
 	service    snellprotocol.Service
-	users      []option.SnellUser
+	multiUser  bool
+	authMode   snellprotocol.MultiUserAuthentication
+	v5Multi    *snellv5.MultiService[string]
+	v6Multi    *snellv6.MultiService[string]
+	quicMulti  *snellv5.MultiService[string]
 	version    int
 	obfsMode   string
 	udpNat     *quicProxyNATService
@@ -48,13 +53,13 @@ type Inbound struct {
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.SnellInboundOptions) (adapter.Inbound, error) {
 	inbound := &Inbound{
-		Adapter:  inbound.NewAdapter(C.TypeSnell, tag),
-		ctx:      ctx,
-		router:   uot.NewRouter(router, logger),
-		logger:   logger,
-		users:    options.Users,
-		version:  options.Version,
-		obfsMode: options.ObfsOptions.ObfsMode,
+		Adapter:   inbound.NewAdapter(C.TypeSnell, tag),
+		ctx:       ctx,
+		router:    uot.NewRouter(router, logger),
+		logger:    logger,
+		multiUser: len(options.Users) > 0,
+		version:   options.Version,
+		obfsMode:  options.ObfsOptions.ObfsMode,
 	}
 	if err := validateSnellInboundObfs(options.Version, options.ObfsOptions.ObfsMode); err != nil {
 		return nil, err
@@ -63,20 +68,8 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	if options.MultiUserAuthentication == "psk" {
 		authentication = snellprotocol.MultiUserAuthenticationPSK
 	}
-	var userList []int
-	var keyList [][]byte
-	if len(options.Users) > 0 {
-		userList = make([]int, len(options.Users))
-		keyList = make([][]byte, len(options.Users))
-		for index, user := range options.Users {
-			userList[index] = index
-			if authentication == snellprotocol.MultiUserAuthenticationPSK {
-				keyList[index] = []byte(user.PSK)
-			} else {
-				keyList[index] = []byte(user.UserKey)
-			}
-		}
-	}
+	inbound.authMode = authentication
+	userList, keyList := snellUserKeys(options.Users, authentication)
 	var err error
 	switch options.Version {
 	case 5:
@@ -85,7 +78,7 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 			Handler:                 inbound,
 			MultiUserAuthentication: authentication,
 		}
-		inbound.service, err = newSnellV5Service(serviceOptions, userList, keyList)
+		inbound.service, inbound.v5Multi, err = newSnellV5Service(serviceOptions, userList, keyList)
 	case 6:
 		var mode snellv6.Mode
 		mode, err = snellv6.ParseMode(options.V6Options.Mode)
@@ -99,13 +92,14 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 			MultiUserAuthentication: authentication,
 		}
 		if len(options.Users) > 0 {
-			var service *snellv6.MultiService[int]
-			service, err = snellv6.NewMultiService[int](serviceOptions)
+			var service *snellv6.MultiService[string]
+			service, err = snellv6.NewMultiService[string](serviceOptions)
 			if err != nil {
 				return nil, err
 			}
 			err = service.UpdateUsers(userList, keyList)
 			inbound.service = service
+			inbound.v6Multi = service
 		} else {
 			inbound.service, err = snellv6.NewService(serviceOptions)
 		}
@@ -125,7 +119,7 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 			return nil, E.New("snell: version 5 service does not support QUIC proxy init parsing")
 		}
 	} else {
-		quicService, createErr := newSnellV5Service(snellv5.ServiceOptions{
+		quicService, quicMulti, createErr := newSnellV5Service(snellv5.ServiceOptions{
 			PSK:                     []byte(options.PSK),
 			Handler:                 inbound,
 			MultiUserAuthentication: authentication,
@@ -133,6 +127,7 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		if createErr != nil {
 			return nil, E.Cause(createErr, "create Snell v6 QUIC Proxy compatibility service")
 		}
+		inbound.quicMulti = quicMulti
 		var loaded bool
 		quicParser, loaded = quicService.(quicProxyInitParser)
 		if !loaded {
@@ -152,18 +147,63 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	return inbound, nil
 }
 
-func newSnellV5Service(options snellv5.ServiceOptions, userList []int, keyList [][]byte) (snellprotocol.Service, error) {
+func newSnellV5Service(options snellv5.ServiceOptions, userList []string, keyList [][]byte) (snellprotocol.Service, *snellv5.MultiService[string], error) {
 	if len(userList) == 0 {
-		return snellv5.NewService(options)
+		service, err := snellv5.NewService(options)
+		return service, nil, err
 	}
-	service, err := snellv5.NewMultiService[int](options)
+	service, err := snellv5.NewMultiService[string](options)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err = service.UpdateUsers(userList, keyList); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return service, nil
+	return service, service, nil
+}
+
+func snellUserKeys(users []option.SnellUser, authentication snellprotocol.MultiUserAuthentication) ([]string, [][]byte) {
+	if len(users) == 0 {
+		return nil, nil
+	}
+	keyList := make([][]byte, len(users))
+	for index, user := range users {
+		if authentication == snellprotocol.MultiUserAuthenticationPSK {
+			keyList[index] = []byte(user.PSK)
+		} else {
+			keyList[index] = []byte(user.UserKey)
+		}
+	}
+	return userkey.Keys(common.Map(users, func(it option.SnellUser) string {
+		return it.Name
+	})), keyList
+}
+
+func (h *Inbound) ReplaceUsers(options any) error {
+	inboundOptions, loaded := options.(*option.SnellInboundOptions)
+	if !loaded {
+		return E.New("snell: unexpected options type")
+	}
+	if !h.multiUser || len(inboundOptions.Users) == 0 {
+		return E.New("snell: switching between single and multi user requires a restart")
+	}
+	userList, keyList := snellUserKeys(inboundOptions.Users, h.authMode)
+	if h.v5Multi != nil {
+		if err := h.v5Multi.UpdateUsers(userList, keyList); err != nil {
+			return err
+		}
+	}
+	if h.v6Multi != nil {
+		if err := h.v6Multi.UpdateUsers(userList, keyList); err != nil {
+			return err
+		}
+	}
+	if h.quicMulti != nil {
+		if err := h.quicMulti.UpdateUsers(userList, keyList); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Inbound) Start(stage adapter.StartStage, scope *adapter.Scope) error {
@@ -222,18 +262,14 @@ func (h *Inbound) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn, 
 func (h *Inbound) newConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	metadata.Inbound = h.Tag()
 	metadata.InboundType = h.Type()
-	if len(h.users) > 0 {
-		userIndex, loaded := auth.UserFromContext[int](ctx)
+	if h.multiUser {
+		userKey, loaded := auth.UserFromContext[string](ctx)
 		if !loaded {
 			N.CloseOnHandshakeFailure(conn, onClose, os.ErrInvalid)
 			return
 		}
-		user := h.users[userIndex].Name
-		if user == "" {
-			user = F.ToString(userIndex)
-		} else {
-			metadata.User = user
-		}
+		name, user := userkey.Split(userKey)
+		metadata.User = name
 		h.logger.InfoContext(ctx, "[", user, "] inbound connection to ", metadata.Destination)
 	} else {
 		h.logger.InfoContext(ctx, "inbound connection to ", metadata.Destination)
@@ -244,18 +280,14 @@ func (h *Inbound) newConnection(ctx context.Context, conn net.Conn, metadata ada
 func (h *Inbound) newPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	metadata.Inbound = h.Tag()
 	metadata.InboundType = h.Type()
-	if len(h.users) > 0 {
-		userIndex, loaded := auth.UserFromContext[int](ctx)
+	if h.multiUser {
+		userKey, loaded := auth.UserFromContext[string](ctx)
 		if !loaded {
 			N.CloseOnHandshakeFailure(conn, onClose, os.ErrInvalid)
 			return
 		}
-		user := h.users[userIndex].Name
-		if user == "" {
-			user = F.ToString(userIndex)
-		} else {
-			metadata.User = user
-		}
+		name, user := userkey.Split(userKey)
+		metadata.User = name
 		h.logger.InfoContext(ctx, "[", user, "] inbound packet connection from ", metadata.Source)
 	} else {
 		h.logger.InfoContext(ctx, "inbound packet connection from ", metadata.Source)
