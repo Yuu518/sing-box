@@ -38,6 +38,7 @@ var _ adapter.ConnectionManager = (*ConnectionManager)(nil)
 
 type ConnectionManager struct {
 	logger         logger.ContextLogger
+	outbound       adapter.OutboundManager
 	urlTestHistory *urltest.HistoryStorage
 	access         sync.Mutex
 	connections    list.List[io.Closer]
@@ -46,6 +47,7 @@ type ConnectionManager struct {
 func NewConnectionManager(ctx context.Context, logger logger.ContextLogger) *ConnectionManager {
 	return &ConnectionManager{
 		logger:         logger,
+		outbound:       service.FromContext[adapter.OutboundManager](ctx),
 		urlTestHistory: service.PtrFromContext[urltest.HistoryStorage](ctx),
 	}
 }
@@ -172,11 +174,11 @@ func (m *ConnectionManager) NewConnection(ctx context.Context, this N.Dialer, co
 		remoteConn = spoofConn
 	}
 	var done atomic.Bool
-	if closed, _ := m.kickWriteHandshake(ctx, remoteConn, conn, false, true, &done, onClose); closed {
+	if closed, _ := m.kickWriteHandshake(ctx, remoteConn, conn, false, true, nil, &done, onClose); closed {
 		return
 	}
 	waitPayload := !sniff.Skip(&metadata) && !E.IsTimeout(metadata.SniffError)
-	closed, sourceEOF := m.kickWriteHandshake(ctx, conn, remoteConn, waitPayload, false, &done, onClose)
+	closed, sourceEOF := m.kickWriteHandshake(ctx, conn, remoteConn, waitPayload, false, metadata.OutboundChain, &done, onClose)
 	if closed {
 		return
 	}
@@ -305,7 +307,7 @@ func (m *ConnectionManager) NewPacketConnection(ctx context.Context, this N.Dial
 }
 
 func (m *ConnectionManager) deleteURLTestHistory(chain []adapter.Outbound, err error) {
-	if E.IsClosedOrCanceled(err) {
+	if E.IsClosedOrCanceled(err) || len(chain) == 0 {
 		return
 	}
 	urlTestGroups := common.FilterIsInstance(chain, func(it adapter.Outbound) (adapter.URLTestGroup, bool) {
@@ -315,9 +317,33 @@ func (m *ConnectionManager) deleteURLTestHistory(chain []adapter.Outbound, err e
 	if len(urlTestGroups) == 0 {
 		return
 	}
-	m.urlTestHistory.DeleteURLTestHistory(chain[len(chain)-1].Tag())
+	failedTag := chain[len(chain)-1].Tag()
+	if failedTag == "" {
+		return
+	}
+	if m.urlTestHistory != nil {
+		m.urlTestHistory.DeleteURLTestHistory(failedTag)
+	}
+	notified := make(map[adapter.URLTestGroup]struct{}, len(urlTestGroups))
 	for _, group := range slices.Backward(urlTestGroups) {
-		group.PerformUpdateCheck()
+		if _, seen := notified[group]; seen {
+			continue
+		}
+		notified[group] = struct{}{}
+		group.ReportFailure(failedTag)
+	}
+	if m.outbound != nil {
+		for _, detour := range m.outbound.Outbounds() {
+			group, isURLTestGroup := detour.(adapter.URLTestGroup)
+			if !isURLTestGroup {
+				continue
+			}
+			if _, seen := notified[group]; seen {
+				continue
+			}
+			notified[group] = struct{}{}
+			group.ReportFailure(failedTag)
+		}
 	}
 }
 
@@ -366,7 +392,7 @@ func (m *ConnectionManager) finishConnectionCopy(ctx context.Context, source net
 	}
 }
 
-func (m *ConnectionManager) kickWriteHandshake(ctx context.Context, source net.Conn, destination net.Conn, waitPayload bool, direction bool, done *atomic.Bool, onClose N.CloseHandlerFunc) (bool, bool) {
+func (m *ConnectionManager) kickWriteHandshake(ctx context.Context, source net.Conn, destination net.Conn, waitPayload bool, direction bool, outboundChain []adapter.Outbound, done *atomic.Bool, onClose N.CloseHandlerFunc) (bool, bool) {
 	if !N.NeedHandshakeForWrite(destination) {
 		return false, false
 	}
@@ -375,7 +401,8 @@ func (m *ConnectionManager) kickWriteHandshake(ctx context.Context, source net.C
 	var (
 		payload   *buf.Buffer
 		sourceEOF bool
-		err       error
+		readErr   error
+		writeErr  error
 	)
 	if cachedReader, ok := sourceReader.(N.CachedReader); ok {
 		payload = cachedReader.ReadCached()
@@ -383,28 +410,26 @@ func (m *ConnectionManager) kickWriteHandshake(ctx context.Context, source net.C
 	if payload == nil && waitPayload && source.SetReadDeadline(time.Now().Add(C.ReadPayloadTimeout)) == nil {
 		sourceReader, readCounters = N.UnwrapCountReader(source, nil)
 		payload = buf.NewPacket()
+		var err error
 		_, err = payload.ReadOnceFrom(sourceReader)
 		_ = source.SetReadDeadline(time.Time{})
 		if errors.Is(err, io.EOF) {
 			sourceEOF = true
-			err = nil
-		} else if E.IsTimeout(err) {
-			err = nil
-		} else if err != nil {
-			err = E.Cause(err, "read payload")
+		} else if !E.IsTimeout(err) && err != nil {
+			readErr = E.Cause(err, "read payload")
 		}
-		if err != nil || payload.IsEmpty() {
+		if readErr != nil || payload.IsEmpty() {
 			payload.Release()
 			payload = nil
 		}
 	}
 	switch {
-	case err != nil:
+	case readErr != nil:
 	case payload != nil:
 		dataLen := payload.Len()
-		_, err = destinationWriter.Write(payload.Bytes())
+		_, writeErr = destinationWriter.Write(payload.Bytes())
 		payload.Release()
-		if err == nil {
+		if writeErr == nil {
 			for _, counter := range readCounters {
 				counter(int64(dataLen))
 			}
@@ -415,11 +440,18 @@ func (m *ConnectionManager) kickWriteHandshake(ctx context.Context, source net.C
 		}
 	default:
 		_ = destination.SetWriteDeadline(time.Now().Add(C.ReadPayloadTimeout))
-		_, err = destinationWriter.Write(nil)
+		_, writeErr = destinationWriter.Write(nil)
 		_ = destination.SetWriteDeadline(time.Time{})
-		if err == nil || E.IsMulti(err, os.ErrInvalid, context.DeadlineExceeded, io.EOF) || E.IsTimeout(err) {
+		if writeErr == nil || E.IsMulti(writeErr, os.ErrInvalid, context.DeadlineExceeded, io.EOF) || E.IsTimeout(writeErr) {
 			return false, sourceEOF
 		}
+	}
+	err := readErr
+	if err == nil {
+		err = writeErr
+	}
+	if !direction && writeErr != nil {
+		m.deleteURLTestHistory(outboundChain, writeErr)
 	}
 	if !done.Swap(true) {
 		if onClose != nil {

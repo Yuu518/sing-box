@@ -65,7 +65,11 @@ func proxyInfo(server *Server, detour adapter.Outbound) *badjson.JSONObject {
 	case C.TypeBlock:
 		clashType = "Reject"
 	default:
-		clashType = C.ProxyDisplayName(detour.Type())
+		if urlTest, isURLTest := detour.(*group.URLTest); isURLTest && urlTest.Fallback() {
+			clashType = "Fallback"
+		} else {
+			clashType = C.ProxyDisplayName(detour.Type())
+		}
 	}
 	info.Put("type", clashType)
 	info.Put("name", detour.Tag())
@@ -249,7 +253,11 @@ func getProxyDelay(server *Server) func(w http.ResponseWriter, r *http.Request) 
 				if !groupContains(server.outbound, urlTestGroup, realTag, map[string]bool{detour.Tag(): true}) {
 					continue
 				}
-				urlTestGroup.PerformUpdateCheck()
+				if err != nil {
+					urlTestGroup.ReportFailure(realTag)
+				} else {
+					urlTestGroup.PerformUpdateCheck()
+				}
 			}
 		}()
 

@@ -14,7 +14,11 @@
   "interval": "",
   "tolerance": 50,
   "idle_timeout": "",
-  "interrupt_exist_connections": false
+  "interrupt_exist_connections": false,
+  "fallback": {
+    "enabled": false,
+    "max_delay": ""
+  }
 }
 ```
 
@@ -47,3 +51,19 @@
 当选定的出站发生更改时，中断现有连接。
 
 仅入站连接受此设置影响，内部连接将始终被中断。
+
+#### fallback
+
+故障转移（fallback）模式配置。
+
+##### enabled
+
+启用故障转移模式。默认关闭。
+
+开启后将按 `outbounds` 列表顺序优先选择首个可用出站，当前出站不可用时自动按顺序切换至后续出站，高优先级出站恢复后自动切回。
+
+##### max_delay
+
+开启故障转移模式后可接受的最大延迟，留空时不限制。
+
+延迟超过该值的出站会被跳过；如果所有可用出站均超过该值，则选择其中延迟最低的出站。
