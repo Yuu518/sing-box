@@ -750,6 +750,7 @@ func (s *StartedService) URLTest(ctx context.Context, request *URLTestRequest) (
 					Delay: t,
 				})
 			}
+			group.NotifyOutboundTestResult(boxService.outboundManager, outboundTag, err)
 		}()
 	}
 	return &emptypb.Empty{}, nil

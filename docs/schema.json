@@ -14429,6 +14429,9 @@
             },
             "interrupt_exist_connections": {
               "type": "boolean"
+            },
+            "fallback": {
+              "$ref": "#/$defs/URLTestFallbackOptions"
             }
           },
           "required": [
@@ -17988,6 +17991,18 @@
           "pattern": "^[-+]?(((\\d+(\\.\\d*)?|\\.\\d+)(ns|us|µs|μs|ms|s|m|h|d))+|0)$"
         }
       ]
+    },
+    "URLTestFallbackOptions": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "max_delay": {
+          "$ref": "#/$defs/Duration"
+        }
+      },
+      "additionalProperties": false
     },
     "USBIPDeviceMatch": {
       "type": "object",

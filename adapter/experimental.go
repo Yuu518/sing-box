@@ -160,4 +160,5 @@ type URLTestGroup interface {
 	OutboundGroup
 	URLTest(ctx context.Context) (map[string]uint16, error)
 	PerformUpdateCheck()
+	ReportFailure(tag string)
 }
