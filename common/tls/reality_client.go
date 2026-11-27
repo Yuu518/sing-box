@@ -59,6 +59,9 @@ func newRealityClient(ctx context.Context, logger logger.ContextLogger, serverAd
 	if options.Spoof != "" || options.SpoofMethod != "" {
 		return nil, E.New("spoof is unsupported in reality")
 	}
+	if options.CertificatePinSHA256 != "" {
+		return nil, E.New("certificate_pin_sha256 is unsupported in reality")
+	}
 
 	uClient, err := newUTLSClient(ctx, logger, serverAddress, options, allowEmptyServerName, nil, false)
 	if err != nil {

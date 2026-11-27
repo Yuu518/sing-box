@@ -10,6 +10,13 @@
     "proxy-b",
     "proxy-c"
   ],
+  "providers": [
+    "provider-a",
+    "provider-b",
+  ],
+  "exclude": "",
+  "include": "",
+  "use_all_providers": false,
   "url": "",
   "interval": "",
   "tolerance": 50,
@@ -26,9 +33,23 @@
 
 #### outbounds
 
-==必填==
-
 用于测试的出站标签列表。
+
+#### providers
+
+用于测试的[订阅](/zh/configuration/provider)标签列表。
+
+#### exclude
+
+排除 `providers` 节点的正则表达式。
+
+#### include
+
+包含 `providers` 节点的正则表达式。
+
+#### use_all_providers
+
+是否使用所有提供者。默认使用 `false`。
 
 #### url
 

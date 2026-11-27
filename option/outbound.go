@@ -78,7 +78,8 @@ type DialerOptionsWrapper interface {
 }
 
 type DialerOptions struct {
-	Detour string `json:"detour,omitempty" reference:"outbound"`
+	Detour          string `json:"detour,omitempty" reference:"outbound"`
+	DetourLocalOnly bool   `json:"-"`
 	AbstractDialerOptions
 }
 

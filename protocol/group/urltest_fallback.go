@@ -133,6 +133,7 @@ func (g *URLTestGroup) fallbackRecoveryTargets() []adapter.Outbound {
 		seen[tag] = struct{}{}
 		targets = append(targets, detour)
 	}
+	outbounds := g.loadOutbounds()
 	for _, network := range []string{N.NetworkTCP, N.NetworkUDP} {
 		var selectedOutbound adapter.Outbound
 		if network == N.NetworkUDP {
@@ -144,12 +145,12 @@ func (g *URLTestGroup) fallbackRecoveryTargets() []adapter.Outbound {
 			supported  []adapter.Outbound
 			anyHistory bool
 		)
-		for _, detour := range g.outbounds {
+		for _, detour := range outbounds {
 			if !common.Contains(detour.Network(), network) {
 				continue
 			}
 			supported = append(supported, detour)
-			if g.history.LoadURLTestHistory(RealTag(detour, network)) != nil {
+			if g.history.LoadURLTestHistoryForOutbound(RealOutbound(detour, network)) != nil {
 				anyHistory = true
 			}
 		}
@@ -165,16 +166,16 @@ func (g *URLTestGroup) fallbackRecoveryTargets() []adapter.Outbound {
 		if selectedOutbound == nil {
 			continue
 		}
-		selectedIdx := slices.Index(g.outbounds, selectedOutbound)
+		selectedIdx := slices.Index(outbounds, selectedOutbound)
 		if selectedIdx <= 0 {
 			continue
 		}
 		for i := range selectedIdx {
-			detour := g.outbounds[i]
+			detour := outbounds[i]
 			if !common.Contains(detour.Network(), network) {
 				continue
 			}
-			if g.history.LoadURLTestHistory(RealTag(detour, network)) == nil {
+			if g.history.LoadURLTestHistoryForOutbound(RealOutbound(detour, network)) == nil {
 				appendTarget(detour)
 			}
 		}
@@ -278,19 +279,13 @@ func (g *URLTestGroup) collectUnavailableLeaves(detour adapter.Outbound, visited
 		*nestedGroups = append(*nestedGroups, urlTestGroup)
 	}
 	if outboundGroup, isGroup := detour.(adapter.OutboundGroup); isGroup {
-		if g.outbound == nil {
-			return
-		}
-		for _, memberTag := range outboundGroup.All() {
-			member, loaded := g.outbound.Outbound(memberTag)
-			if !loaded {
-				continue
-			}
+		_, members := Members(outboundGroup)
+		for _, member := range members {
 			g.collectUnavailableLeaves(member, visited, nestedGroups, leaves)
 		}
 		return
 	}
-	if g.history.LoadURLTestHistory(tag) != nil {
+	if g.history.LoadURLTestHistoryForOutbound(detour) != nil {
 		return
 	}
 	*leaves = append(*leaves, detour)
@@ -331,7 +326,7 @@ func (g *URLTestGroup) probeFallbackLeaf(detour adapter.Outbound, nestedGroups [
 	}
 	g.logger.Debug("outbound ", tag, " available: ", testResult.delay, "ms")
 	g.recordProbeRecovery(tag)
-	g.history.StoreURLTestHistory(tag, &adapter.URLTestHistory{
+	g.history.StoreURLTestHistoryForOutbound(detour, &adapter.URLTestHistory{
 		Time:  time.Now(),
 		Delay: testResult.delay,
 	})

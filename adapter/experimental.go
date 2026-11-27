@@ -47,6 +47,8 @@ type CacheFile interface {
 	StoreGroupExpand(group string, expand bool) error
 	LoadRuleSet(tag string) *SavedBinary
 	SaveRuleSet(tag string, set *SavedBinary) error
+	LoadSubscription(tag string) *SavedBinary
+	SaveSubscription(tag string, sub *SavedBinary) error
 }
 
 type SavedBinary struct {
@@ -54,11 +56,12 @@ type SavedBinary struct {
 	LastUpdated time.Time
 	LastEtag    string
 	URLHash     []byte
+	ContentHash []byte
 }
 
 func (s *SavedBinary) MarshalBinary() ([]byte, error) {
 	var buffer bytes.Buffer
-	err := binary.Write(&buffer, binary.BigEndian, uint8(2))
+	err := binary.Write(&buffer, binary.BigEndian, uint8(3))
 	if err != nil {
 		return nil, err
 	}
@@ -87,6 +90,14 @@ func (s *SavedBinary) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 	_, err = buffer.Write(s.URLHash)
+	if err != nil {
+		return nil, err
+	}
+	_, err = varbin.WriteUvarint(&buffer, uint64(len(s.ContentHash)))
+	if err != nil {
+		return nil, err
+	}
+	_, err = buffer.Write(s.ContentHash)
 	if err != nil {
 		return nil, err
 	}
@@ -146,13 +157,27 @@ func (s *SavedBinary) UnmarshalBinary(data []byte) error {
 	if err != nil {
 		return err
 	}
-	return nil
+	if version < 3 {
+		return nil
+	}
+	contentHashLength, err := binary.ReadUvarint(reader)
+	if err != nil {
+		return err
+	}
+	if contentHashLength > uint64(reader.Len()) {
+		return E.New("invalid content hash length: ", contentHashLength)
+	}
+	s.ContentHash = make([]byte, contentHashLength)
+	_, err = io.ReadFull(reader, s.ContentHash)
+	return err
 }
 
 type OutboundGroup interface {
 	Outbound
 	All() []string
+	Member(tag string) (Outbound, bool)
 	Selected(network string) Outbound
+	SelectedTag(network string) string
 	AttachConnection(closer io.Closer) (detach func())
 }
 

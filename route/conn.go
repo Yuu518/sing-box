@@ -317,12 +317,13 @@ func (m *ConnectionManager) deleteURLTestHistory(chain []adapter.Outbound, err e
 	if len(urlTestGroups) == 0 {
 		return
 	}
-	failedTag := chain[len(chain)-1].Tag()
+	failedOutbound := chain[len(chain)-1]
+	failedTag := failedOutbound.Tag()
 	if failedTag == "" {
 		return
 	}
 	if m.urlTestHistory != nil {
-		m.urlTestHistory.DeleteURLTestHistory(failedTag)
+		m.urlTestHistory.StoreURLTestHistoryForOutbound(failedOutbound, nil)
 	}
 	notified := make(map[adapter.URLTestGroup]struct{}, len(urlTestGroups))
 	for _, group := range slices.Backward(urlTestGroups) {

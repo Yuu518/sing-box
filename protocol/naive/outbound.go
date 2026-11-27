@@ -94,6 +94,9 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 	if options.TLS.Reality != nil && options.TLS.Reality.Enabled {
 		return nil, E.New("reality is not supported on naive outbound")
 	}
+	if options.TLS.CertificatePinSHA256 != "" {
+		return nil, E.New("certificate_pin_sha256 is not supported on naive outbound")
+	}
 
 	serverAddress := options.ServerOptions.Build()
 
