@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/common/tlsfragment"
+	tf "github.com/sagernet/sing-box/common/tlsfragment"
 	"github.com/sagernet/sing-box/common/tlsspoof"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
@@ -33,6 +33,7 @@ type UTLSClientConfig struct {
 	serverName            string
 	disableSNI            bool
 	verifyServerName      bool
+	certificatePinSHA256  []byte
 	handshakeTimeout      time.Duration
 	id                    utls.ClientHelloID
 	fragment              bool
@@ -48,6 +49,9 @@ func (c *UTLSClientConfig) ServerName() string {
 
 func (c *UTLSClientConfig) SetServerName(serverName string) {
 	c.serverName = serverName
+	if len(c.certificatePinSHA256) > 0 {
+		c.config.VerifyPeerCertificate = certificatePinSHA256Verifier(c.certificatePinSHA256, serverName, c.config.Time)
+	}
 	if c.disableSNI {
 		c.config.ServerName = ""
 		if c.verifyServerName {
@@ -105,6 +109,7 @@ func (c *UTLSClientConfig) Clone() Config {
 		serverName:            c.serverName,
 		disableSNI:            c.disableSNI,
 		verifyServerName:      c.verifyServerName,
+		certificatePinSHA256:  c.certificatePinSHA256,
 		handshakeTimeout:      c.handshakeTimeout,
 		id:                    c.id,
 		fragment:              c.fragment,
@@ -218,7 +223,13 @@ func newUTLSClient(ctx context.Context, logger logger.ContextLogger, serverAddre
 			return nil, E.New("disable_sni is unsupported in reality")
 		}
 	}
-	if len(options.CertificateSHA256) > 0 || len(options.CertificatePublicKeySHA256) > 0 {
+	certificatePinSHA256, err := parseCertificatePinSHA256(options)
+	if err != nil {
+		return nil, err
+	}
+	if len(certificatePinSHA256) > 0 {
+		tlsConfig.InsecureSkipVerify = true
+	} else if len(options.CertificateSHA256) > 0 || len(options.CertificatePublicKeySHA256) > 0 {
 		if len(options.Certificate) > 0 || options.CertificatePath != "" {
 			return nil, E.New("certificate_sha256 or certificate_public_key_sha256 is conflict with certificate or certificate_path")
 		}
@@ -321,7 +332,8 @@ func newUTLSClient(ctx context.Context, logger logger.ContextLogger, serverAddre
 		config:                &tlsConfig,
 		serverName:            serverName,
 		disableSNI:            options.DisableSNI,
-		verifyServerName:      options.DisableSNI && !options.Insecure,
+		verifyServerName:      options.DisableSNI && !options.Insecure && len(certificatePinSHA256) == 0,
+		certificatePinSHA256:  certificatePinSHA256,
 		handshakeTimeout:      handshakeTimeout,
 		id:                    id,
 		fragment:              options.Fragment,

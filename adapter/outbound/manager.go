@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -16,14 +17,16 @@ import (
 var _ adapter.OutboundManager = (*Manager)(nil)
 
 type Manager struct {
-	registry        adapter.OutboundRegistry
-	endpoint        adapter.EndpointManager
-	defaultTag      string
-	access          sync.RWMutex
-	outbounds       []adapter.Outbound
-	outboundByTag   map[string]adapter.Outbound
-	defaultOutbound adapter.Outbound
-	sortedOutbounds []adapter.Outbound
+	registry                adapter.OutboundRegistry
+	endpoint                adapter.EndpointManager
+	defaultTag              string
+	access                  sync.RWMutex
+	outbounds               []adapter.Outbound
+	outboundByTag           map[string]adapter.Outbound
+	defaultOutbound         adapter.Outbound
+	sortedOutbounds         []adapter.Outbound
+	providerFallback        adapter.Outbound
+	providerFallbackFactory func(tag string) (adapter.Outbound, error)
 }
 
 func NewManager(registry adapter.OutboundRegistry, endpoint adapter.EndpointManager, defaultTag string) *Manager {
@@ -60,6 +63,38 @@ func (m *Manager) Initialize(defaultOutboundFallback func() (adapter.Outbound, e
 	}
 	m.sortedOutbounds = sortedOutbounds
 	return nil
+}
+
+func (m *Manager) InitializeProviderFallback(factory func(tag string) (adapter.Outbound, error)) {
+	m.providerFallbackFactory = factory
+}
+
+func (m *Manager) ProviderFallback() (adapter.Outbound, error) {
+	m.access.Lock()
+	defer m.access.Unlock()
+	if m.providerFallback != nil && m.outboundByTag[m.providerFallback.Tag()] == m.providerFallback {
+		return m.providerFallback, nil
+	}
+	if m.providerFallbackFactory == nil {
+		return nil, E.New("provider fallback is not initialized")
+	}
+	const baseTag = "__provider_fallback__"
+	tag := baseTag
+	for suffix := 2; ; suffix++ {
+		_, endpointExists := m.endpoint.Get(tag)
+		if m.outboundByTag[tag] == nil && !endpointExists {
+			break
+		}
+		tag = baseTag + "-" + strconv.Itoa(suffix)
+	}
+	fallback, err := m.providerFallbackFactory(tag)
+	if err != nil {
+		return nil, err
+	}
+	m.providerFallback = fallback
+	m.outbounds = append(m.outbounds, fallback)
+	m.outboundByTag[tag] = fallback
+	return fallback, nil
 }
 
 func (m *Manager) Start(stage adapter.StartStage, scope *adapter.Scope) error {

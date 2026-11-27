@@ -35,6 +35,24 @@ func NotifyOutboundFailure(outboundManager adapter.OutboundManager, history *url
 	if history != nil {
 		history.DeleteURLTestHistory(failedTag)
 	}
+	notifyFailureGroups(outboundManager, chain, failedTag)
+}
+
+func notifyOutboundFailure(outboundManager adapter.OutboundManager, history *urltest.HistoryStorage, chain []adapter.Outbound, failedOutbound adapter.Outbound) {
+	if failedOutbound == nil {
+		return
+	}
+	failedTag := failedOutbound.Tag()
+	if failedTag == "" {
+		return
+	}
+	if history != nil {
+		history.StoreURLTestHistoryForOutbound(failedOutbound, nil)
+	}
+	notifyFailureGroups(outboundManager, chain, failedTag)
+}
+
+func notifyFailureGroups(outboundManager adapter.OutboundManager, chain []adapter.Outbound, failedTag string) {
 	notified := make(map[adapter.URLTestGroup]struct{})
 	for _, it := range slices.Backward(chain) {
 		urlTestGroup, isURLTestGroup := it.(adapter.URLTestGroup)
@@ -84,14 +102,12 @@ func NotifyOutboundTestResult(outboundManager adapter.OutboundManager, tag strin
 }
 
 func GroupContains(outboundManager adapter.OutboundManager, outboundGroup adapter.OutboundGroup, tag string, visited map[string]bool) bool {
-	for _, memberTag := range outboundGroup.All() {
+	memberTags, members := Members(outboundGroup)
+	for i, memberTag := range memberTags {
 		if memberTag == tag {
 			return true
 		}
-		member, loaded := outboundManager.Outbound(memberTag)
-		if !loaded {
-			continue
-		}
+		member := members[i]
 		if RealTag(member, N.NetworkTCP) == tag || RealTag(member, N.NetworkUDP) == tag {
 			return true
 		}
@@ -153,8 +169,9 @@ func (g *URLTestGroup) configureFallback(fallback bool, maxDelay time.Duration) 
 }
 
 func (g *URLTestGroup) selectOutbound(network string, failedOutbound adapter.Outbound) (adapter.Outbound, bool) {
+	outbounds := g.loadOutbounds()
 	if g.fallback {
-		return g.selectFallbackOutbound(network, failedOutbound)
+		return g.selectFallbackOutbound(outbounds, network, failedOutbound)
 	}
 	var (
 		minDelay         uint16
@@ -168,16 +185,16 @@ func (g *URLTestGroup) selectOutbound(network string, failedOutbound adapter.Out
 		selectedOutbound = g.selectedOutboundUDP.Load()
 	}
 	if selectedOutbound != nil && selectedOutbound != failedOutbound {
-		if history := g.history.LoadURLTestHistory(RealTag(selectedOutbound, network)); history != nil {
+		if history := g.history.LoadURLTestHistoryForOutbound(RealOutbound(selectedOutbound, network)); history != nil {
 			minOutbound = selectedOutbound
 			minDelay = history.Delay
 		}
 	}
-	for _, detour := range g.outbounds {
+	for _, detour := range outbounds {
 		if !common.Contains(detour.Network(), network) {
 			continue
 		}
-		history := g.history.LoadURLTestHistory(RealTag(detour, network))
+		history := g.history.LoadURLTestHistoryForOutbound(RealOutbound(detour, network))
 		if history == nil {
 			continue
 		}
@@ -195,21 +212,21 @@ func (g *URLTestGroup) selectOutbound(network string, failedOutbound adapter.Out
 		}
 	}
 	if minOutbound == nil {
-		return g.selectWithoutHistory(network, failedOutbound), false
+		return g.selectWithoutHistory(outbounds, network, failedOutbound), false
 	}
 	return minOutbound, true
 }
 
-func (g *URLTestGroup) selectFallbackOutbound(network string, failedOutbound adapter.Outbound) (adapter.Outbound, bool) {
+func (g *URLTestGroup) selectFallbackOutbound(outbounds []adapter.Outbound, network string, failedOutbound adapter.Outbound) (adapter.Outbound, bool) {
 	var (
 		bestExceededDelay    uint16
 		bestExceededOutbound adapter.Outbound
 	)
-	for _, detour := range g.outbounds {
+	for _, detour := range outbounds {
 		if !common.Contains(detour.Network(), network) {
 			continue
 		}
-		history := g.history.LoadURLTestHistory(RealTag(detour, network))
+		history := g.history.LoadURLTestHistoryForOutbound(RealOutbound(detour, network))
 		if history == nil {
 			continue
 		}
@@ -224,18 +241,21 @@ func (g *URLTestGroup) selectFallbackOutbound(network string, failedOutbound ada
 	if bestExceededOutbound != nil {
 		return bestExceededOutbound, true
 	}
-	return g.selectWithoutHistory(network, failedOutbound), false
+	return g.selectWithoutHistory(outbounds, network, failedOutbound), false
 }
 
-func (g *URLTestGroup) selectWithoutHistory(network string, failedOutbound adapter.Outbound) adapter.Outbound {
+func (g *URLTestGroup) selectWithoutHistory(outbounds []adapter.Outbound, network string, failedOutbound adapter.Outbound) adapter.Outbound {
+	if len(outbounds) == 0 {
+		return nil
+	}
 	startIndex := 0
 	if failedOutbound != nil {
-		if idx := slices.Index(g.outbounds, failedOutbound); idx >= 0 {
-			startIndex = (idx + 1) % len(g.outbounds)
+		if idx := slices.Index(outbounds, failedOutbound); idx >= 0 {
+			startIndex = (idx + 1) % len(outbounds)
 		}
 	}
-	for offset := range len(g.outbounds) {
-		detour := g.outbounds[(startIndex+offset)%len(g.outbounds)]
+	for offset := range len(outbounds) {
+		detour := outbounds[(startIndex+offset)%len(outbounds)]
 		if !common.Contains(detour.Network(), network) {
 			continue
 		}
@@ -284,6 +304,7 @@ func (g *URLTestGroup) shouldSwitchMidBatchOnSuccess(tag string, delay uint16, i
 }
 
 func (g *URLTestGroup) shouldSwitchMidBatchFallback(tag string, delay uint16, inFlight map[string]bool, network string) bool {
+	outbounds := g.loadOutbounds()
 	var selectedOutbound adapter.Outbound
 	if network == N.NetworkUDP {
 		selectedOutbound = g.selectedOutboundUDP.Load()
@@ -291,7 +312,7 @@ func (g *URLTestGroup) shouldSwitchMidBatchFallback(tag string, delay uint16, in
 		selectedOutbound = g.selectedOutboundTCP.Load()
 	}
 	candidateIdx := -1
-	for i, detour := range g.outbounds {
+	for i, detour := range outbounds {
 		if !common.Contains(detour.Network(), network) {
 			continue
 		}
@@ -305,7 +326,7 @@ func (g *URLTestGroup) shouldSwitchMidBatchFallback(tag string, delay uint16, in
 	}
 	if selectedOutbound == nil {
 		for i := range candidateIdx {
-			detour := g.outbounds[i]
+			detour := outbounds[i]
 			if !common.Contains(detour.Network(), network) {
 				continue
 			}
@@ -315,13 +336,13 @@ func (g *URLTestGroup) shouldSwitchMidBatchFallback(tag string, delay uint16, in
 		}
 		return true
 	}
-	selectedIdx := slices.Index(g.outbounds, selectedOutbound)
+	selectedIdx := slices.Index(outbounds, selectedOutbound)
 	if selectedIdx >= 0 && candidateIdx < selectedIdx && (g.maxDelay == 0 || time.Duration(delay)*time.Millisecond <= g.maxDelay) {
 		return true
 	}
 	if g.selectedUnavailableAndNotInFlight(network, inFlight) {
 		for i := range candidateIdx {
-			detour := g.outbounds[i]
+			detour := outbounds[i]
 			if !common.Contains(detour.Network(), network) {
 				continue
 			}
@@ -344,7 +365,7 @@ func (g *URLTestGroup) selectedUnavailableAndNotInFlight(network string, inFligh
 	if selectedOutbound == nil {
 		return false
 	}
-	if g.history.LoadURLTestHistory(RealTag(selectedOutbound, network)) != nil {
+	if g.history.LoadURLTestHistoryForOutbound(RealOutbound(selectedOutbound, network)) != nil {
 		return false
 	}
 	return !g.isOutboundInFlight(selectedOutbound, network, inFlight)
@@ -395,7 +416,7 @@ func (g *URLTestGroup) reportFailure(failedTag string) {
 }
 
 func (g *URLTestGroup) containsTag(tag string) bool {
-	return g.containsTagVisited(g.outbounds, tag, make(map[string]bool))
+	return g.containsTagVisited(g.loadOutbounds(), tag, make(map[string]bool))
 }
 
 func (g *URLTestGroup) containsTagVisited(outbounds []adapter.Outbound, tag string, visited map[string]bool) bool {
@@ -409,13 +430,10 @@ func (g *URLTestGroup) containsTagVisited(outbounds []adapter.Outbound, tag stri
 		}
 		visited[detourTag] = true
 		nestedGroup, isGroup := detour.(adapter.OutboundGroup)
-		if !isGroup || g.outbound == nil {
+		if !isGroup {
 			continue
 		}
-		members := common.FilterNotNil(common.Map(nestedGroup.All(), func(it string) adapter.Outbound {
-			member, _ := g.outbound.Outbound(it)
-			return member
-		}))
+		_, members := Members(nestedGroup)
 		if g.containsTagVisited(members, tag, visited) {
 			return true
 		}

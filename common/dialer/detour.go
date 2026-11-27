@@ -3,7 +3,6 @@ package dialer
 import (
 	"context"
 	"net"
-	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing/common"
@@ -18,12 +17,10 @@ type DirectDialer interface {
 
 type DetourDialer struct {
 	outboundManager         adapter.OutboundManager
+	scope                   adapter.OutboundScope
 	detour                  string
 	defaultOutbound         bool
 	disableEmptyDirectCheck bool
-	dialer                  N.Dialer
-	initOnce                sync.Once
-	initErr                 error
 }
 
 func NewDetour(outboundManager adapter.OutboundManager, detour string, disableEmptyDirectCheck bool) N.Dialer {
@@ -49,36 +46,69 @@ func InitializeDetour(dialer N.Dialer) error {
 	return common.Error(detourDialer.Dialer())
 }
 
-func (d *DetourDialer) Dialer() (N.Dialer, error) {
-	d.initOnce.Do(d.init)
-	return d.dialer, d.initErr
+type detourStackKey struct{}
+
+type detourStackNode struct {
+	dialer *DetourDialer
+	target adapter.Outbound
+	prev   *detourStackNode
 }
 
-func (d *DetourDialer) init() {
+func (d *DetourDialer) Dialer() (N.Dialer, error) {
+	return d.resolve()
+}
+
+func (d *DetourDialer) resolve() (adapter.Outbound, error) {
+	// Provider updates can replace or remove a node without changing its tag.
+	// Resolve it for each new connection instead of retaining a closed instance.
 	var dialer adapter.Outbound
 	if d.detour != "" {
 		var loaded bool
-		dialer, loaded = d.outboundManager.Outbound(d.detour)
+		if d.scope != nil {
+			dialer, loaded = d.scope.Outbound(d.detour)
+		}
 		if !loaded {
-			d.initErr = E.New("outbound detour not found: ", d.detour)
-			return
+			dialer, loaded = d.outboundManager.Outbound(d.detour)
+		}
+		if !loaded {
+			return nil, E.New("outbound detour not found: ", d.detour)
 		}
 	} else {
 		dialer = d.outboundManager.Default()
 	}
+	if dialer == nil {
+		return nil, E.New("default outbound is not available")
+	}
 	if !d.defaultOutbound && !d.disableEmptyDirectCheck {
 		if directDialer, isDirect := dialer.(DirectDialer); isDirect {
 			if directDialer.IsEmpty() {
-				d.initErr = E.New("detour to an empty direct outbound makes no sense")
-				return
+				return nil, E.New("detour to an empty direct outbound makes no sense")
 			}
 		}
 	}
-	d.dialer = dialer
+	return dialer, nil
+}
+
+func (d *DetourDialer) enterDetour(ctx context.Context, target adapter.Outbound) (context.Context, error) {
+	stack, _ := ctx.Value(detourStackKey{}).(*detourStackNode)
+	for node := stack; node != nil; node = node.prev {
+		if node.dialer == d || node.target == target {
+			return nil, E.New("circular outbound detour: ", target.Tag())
+		}
+	}
+	return context.WithValue(ctx, detourStackKey{}, &detourStackNode{
+		dialer: d,
+		target: target,
+		prev:   stack,
+	}), nil
 }
 
 func (d *DetourDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
-	dialer, err := d.Dialer()
+	dialer, err := d.resolve()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err = d.enterDetour(ctx, dialer)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +116,11 @@ func (d *DetourDialer) DialContext(ctx context.Context, network string, destinat
 }
 
 func (d *DetourDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
-	dialer, err := d.Dialer()
+	dialer, err := d.resolve()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err = d.enterDetour(ctx, dialer)
 	if err != nil {
 		return nil, err
 	}

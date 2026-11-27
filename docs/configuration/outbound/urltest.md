@@ -10,9 +10,16 @@
     "proxy-b",
     "proxy-c"
   ],
+  "providers": [
+    "provider-a",
+    "provider-b",
+  ],
+  "exclude": "",
+  "include": "",
+  "use_all_providers": false,
   "url": "",
   "interval": "",
-  "tolerance": 0,
+  "tolerance": 50,
   "idle_timeout": "",
   "interrupt_exist_connections": false,
   "fallback": {
@@ -26,9 +33,23 @@
 
 #### outbounds
 
-==Required==
-
 List of outbound tags to test.
+
+#### providers
+
+List of [Provider](/configuration/provider) tags to test.
+
+#### exclude
+
+Exclude regular expression to filter `providers` nodes.
+
+#### include
+
+Include regular expression to filter `providers` nodes.
+
+#### use_all_providers
+
+Whether to use all providers for testing. `false` will be used if empty.
 
 #### url
 

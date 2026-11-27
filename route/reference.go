@@ -107,6 +107,17 @@ func (m *ReferenceManager) Start(stage adapter.StartStage, scope *adapter.Scope)
 	if clashMode != nil {
 		clashMode.AddUpdateHook(m.subscriber)
 	}
+	providerManager := service.FromContext[adapter.ProviderManager](m.ctx)
+	if providerManager != nil {
+		providerCallback := providerManager.RegisterCallback(func(string) error {
+			m.subscriber.Emit(struct{}{})
+			return nil
+		})
+		scope.Add(func() error {
+			providerManager.UnregisterCallback(providerCallback)
+			return nil
+		})
+	}
 	if m.pauseManager != nil {
 		m.devicePaused.Store(m.pauseManager.IsDevicePaused())
 	}
@@ -158,6 +169,7 @@ func (m *ReferenceManager) update() {
 	networkManager := service.FromContext[adapter.NetworkManager](m.ctx)
 	httpClientManager := service.FromContext[adapter.HTTPClientManager](m.ctx)
 	certificateProviderManager := service.FromContext[adapter.CertificateProviderManager](m.ctx)
+	providerManager := service.FromContext[adapter.ProviderManager](m.ctx)
 
 	transportQueue := slices.Clone(m.staticTransports)
 	outboundQueue := slices.Clone(m.staticOutbounds)
@@ -202,9 +214,36 @@ func (m *ReferenceManager) update() {
 		}
 	}
 
+	providerByMember := make(map[adapter.Outbound]adapter.Provider)
+	var providerMembers []adapter.Outbound
+	if providerManager != nil {
+		for _, provider := range providerManager.Providers() {
+			for _, member := range provider.Outbounds() {
+				providerByMember[member] = provider
+				providerMembers = append(providerMembers, member)
+			}
+		}
+	}
+	var referenceQueue []outboundReference
+	for _, member := range providerMembers {
+		onDemandEndpoint, isOnDemandEndpoint := member.(adapter.OnDemandEndpoint)
+		if isOnDemandEndpoint && onDemandEndpoint.OnDemand() {
+			onDemandEndpoints = append(onDemandEndpoints, onDemandEndpoint)
+			continue
+		}
+		if _, isEndpoint := member.(adapter.Endpoint); isEndpoint {
+			referenceQueue = append(referenceQueue, outboundReference{
+				outbound: member,
+				scope:    adapter.ProviderOutboundScope(providerByMember[member]),
+			})
+		}
+	}
 	referencedTransports := make(map[string]bool)
-	referencedOutbounds := make(map[string]bool)
-	for len(transportQueue) > 0 || len(outboundQueue) > 0 {
+	referencedOutbounds := make(map[adapter.Outbound]bool)
+	for _, tag := range outboundQueue {
+		referenceQueue = append(referenceQueue, outboundReference{tag: tag})
+	}
+	for len(transportQueue) > 0 || len(referenceQueue) > 0 {
 		if len(transportQueue) > 0 {
 			tag := transportQueue[0]
 			transportQueue = transportQueue[1:]
@@ -220,35 +259,64 @@ func (m *ReferenceManager) update() {
 			transportReferrer, isTransportReferrer := transport.(adapter.Referrer)
 			if isTransportReferrer {
 				outbounds, dnsServers := transportReferrer.References()
-				outboundQueue = append(outboundQueue, outbounds...)
+				for _, outboundTag := range outbounds {
+					referenceQueue = append(referenceQueue, outboundReference{tag: outboundTag})
+				}
 				transportQueue = append(transportQueue, dnsServers...)
 			}
 			continue
 		}
-		tag := outboundQueue[0]
-		outboundQueue = outboundQueue[1:]
-		if tag == "" || referencedOutbounds[tag] {
+		reference := referenceQueue[0]
+		referenceQueue = referenceQueue[1:]
+		if reference.outbound == nil && reference.tag == "" {
 			continue
 		}
-		outbound, loaded := outboundManager.Outbound(tag)
-		if !loaded {
+		var (
+			outbound adapter.Outbound
+			loaded   bool
+		)
+		if reference.outbound != nil {
+			outbound, loaded = reference.outbound, true
+		} else {
+			if reference.scope != nil {
+				outbound, loaded = reference.scope.Outbound(reference.tag)
+			}
+			if !loaded {
+				outbound, loaded = outboundManager.Outbound(reference.tag)
+			}
+		}
+		if !loaded || referencedOutbounds[outbound] {
 			continue
 		}
-		referencedOutbounds[tag] = true
-		transportQueue = append(transportQueue, m.domainResolvers[tag])
+		referencedOutbounds[outbound] = true
+		var scope adapter.OutboundScope
+		if outboundGroup, isGroup := outbound.(adapter.OutboundGroup); isGroup {
+			scope = groupScope{outboundGroup}
+		} else if provider, isMember := providerByMember[outbound]; isMember {
+			scope = adapter.ProviderOutboundScope(provider)
+			if resolver, ok := provider.(adapter.ProviderDomainResolver); ok {
+				transportQueue = append(transportQueue, resolver.OutboundDomainResolver(outbound))
+			}
+		} else {
+			transportQueue = append(transportQueue, m.domainResolvers[outbound.Tag()])
+		}
+		var next []string
 		outboundReferrer, isOutboundReferrer := outbound.(adapter.Referrer)
 		if isOutboundReferrer {
 			outbounds, dnsServers := outboundReferrer.References()
-			outboundQueue = append(outboundQueue, outbounds...)
+			next = outbounds
 			transportQueue = append(transportQueue, dnsServers...)
 		} else {
-			outboundQueue = append(outboundQueue, outbound.Dependencies()...)
+			next = outbound.Dependencies()
+		}
+		for _, tag := range next {
+			referenceQueue = append(referenceQueue, outboundReference{tag: tag, scope: scope})
 		}
 	}
 
 	devicePaused := m.devicePaused.Load()
 	keepIdle := make(map[any]bool)
-	for _, outbound := range outboundManager.Outbounds() {
+	for _, outbound := range slices.Concat(outboundManager.Outbounds(), providerMembers) {
 		keeper, isKeeper := outbound.(adapter.IdleConnectionKeeper)
 		if !isKeeper {
 			continue
@@ -260,7 +328,7 @@ func (m *ReferenceManager) update() {
 			action:   "closing idle connections",
 			typeName: outbound.Type(),
 			tag:      outbound.Tag(),
-			keep:     referencedOutbounds[outbound.Tag()],
+			keep:     referencedOutbounds[outbound],
 		})
 	}
 	for _, endpoint := range onDemandEndpoints {
@@ -271,7 +339,7 @@ func (m *ReferenceManager) update() {
 			action:       "suspending",
 			typeName:     endpoint.Type(),
 			tag:          endpoint.Tag(),
-			keep:         referencedOutbounds[endpoint.Tag()] && !devicePaused,
+			keep:         referencedOutbounds[endpoint] && !devicePaused,
 			devicePaused: devicePaused,
 		})
 	}
@@ -343,7 +411,7 @@ func (m *ReferenceManager) applyKeepIdle(keepIdle map[any]bool, target idleTarge
 func (m *ReferenceManager) CloseIdleConnections() {
 	outboundManager := service.FromContext[adapter.OutboundManager](m.ctx)
 	transportManager := service.FromContext[adapter.DNSTransportManager](m.ctx)
-	for _, outbound := range outboundManager.Outbounds() {
+	for _, outbound := range slices.Concat(outboundManager.Outbounds(), adapter.ProviderOutbounds(m.ctx)) {
 		keeper, isKeeper := outbound.(adapter.IdleConnectionKeeper)
 		if isKeeper {
 			keeper.CloseIdleConnections()
@@ -355,4 +423,18 @@ func (m *ReferenceManager) CloseIdleConnections() {
 			keeper.CloseIdleConnections()
 		}
 	}
+}
+
+type outboundReference struct {
+	tag      string
+	outbound adapter.Outbound
+	scope    adapter.OutboundScope
+}
+
+type groupScope struct {
+	adapter.OutboundGroup
+}
+
+func (s groupScope) Outbound(tag string) (adapter.Outbound, bool) {
+	return s.Member(tag)
 }
