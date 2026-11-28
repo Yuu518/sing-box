@@ -101,3 +101,14 @@ func TestInboundContextDomainHost(t *testing.T) {
 		})
 	}
 }
+
+func TestInboundContextMatchDestinationAddresses(t *testing.T) {
+	t.Parallel()
+	dialAddrs := []netip.Addr{netip.MustParseAddr("192.0.2.1")}
+	cacheAddrs := []netip.Addr{netip.MustParseAddr("10.0.0.1")}
+
+	require.Nil(t, (&InboundContext{}).MatchDestinationAddresses())
+	require.Equal(t, dialAddrs, (&InboundContext{DestinationAddresses: dialAddrs}).MatchDestinationAddresses())
+	require.Equal(t, cacheAddrs, (&InboundContext{CacheIPs: cacheAddrs}).MatchDestinationAddresses())
+	require.Equal(t, cacheAddrs, (&InboundContext{DestinationAddresses: dialAddrs, CacheIPs: cacheAddrs}).MatchDestinationAddresses())
+}

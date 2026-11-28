@@ -474,6 +474,8 @@ func (r *Router) PreMatch(metadata adapter.InboundContext, firstPacket []byte) a
 
 func applyRouteOptionsOverride(metadata *adapter.InboundContext, routeOptions *R.RuleActionRouteOptions) {
 	if routeOptions.OverrideAddress.IsValid() {
+		metadata.DestinationAddresses = nil
+		metadata.CacheIPs = nil
 		metadata.Destination = M.Socksaddr{
 			Addr: routeOptions.OverrideAddress.Addr,
 			Port: metadata.Destination.Port,
@@ -535,15 +537,19 @@ func (r *Router) preMatchFlow(ctx context.Context, metadata *adapter.InboundCont
 		if !metadata.FakeIP {
 			return continueResult
 		}
+		addresses := metadata.DestinationAddresses
+		if len(addresses) == 0 {
+			addresses = metadata.CacheIPs
+		}
 		var newDestination netip.Addr
-		for _, address := range metadata.DestinationAddresses {
+		for _, address := range addresses {
 			if address.Is4() == packetDestination.IsIPv4() {
 				newDestination = address
 				break
 			}
 		}
 		if !newDestination.IsValid() {
-			if len(metadata.DestinationAddresses) == 0 {
+			if len(addresses) == 0 {
 				r.logger.WarnContext(ctx, "pre-match: reject ", metadata.Network, " connection from ", metadata.Source.AddrString(), " to fake destination ", metadata.Destination.Fqdn, ": a resolve action is required before routing to outbound/", outbound.Type(), "[", outbound.Tag(), "]")
 			} else {
 				r.logger.DebugContext(ctx, "pre-match: reject ", metadata.Network, " connection from ", metadata.Source.AddrString(), " to fake destination ", metadata.Destination.Fqdn, ": no resolved address for this address family")
@@ -674,9 +680,6 @@ match:
 			// TODO: add nat
 			if (routeOptions.OverrideAddress.IsValid() || routeOptions.OverridePort > 0) && !metadata.RouteOriginalDestination.IsValid() {
 				metadata.RouteOriginalDestination = metadata.Destination
-			}
-			if routeOptions.OverrideAddress.IsValid() {
-				metadata.DestinationAddresses = nil
 			}
 			applyRouteOptionsOverride(metadata, routeOptions)
 			if routeOptions.NetworkStrategy != nil {
@@ -953,8 +956,40 @@ func (r *Router) actionResolve(ctx context.Context, metadata *adapter.InboundCon
 		if err != nil {
 			return err
 		}
-		metadata.DestinationAddresses = addresses
-		r.logger.DebugContext(ctx, "resolved [", strings.Join(F.MapToString(metadata.DestinationAddresses), " "), "]")
+		if action.MatchOnly {
+			metadata.CacheIPs = addresses
+			r.logger.DebugContext(ctx, "resolved [", strings.Join(F.MapToString(metadata.CacheIPs), " "), "] for match only")
+		} else {
+			metadata.DestinationAddresses = addresses
+			metadata.CacheIPs = nil
+			r.logger.DebugContext(ctx, "resolved [", strings.Join(F.MapToString(metadata.DestinationAddresses), " "), "]")
+		}
+		metadata.IPVersion = 0
+		if len(addresses) > 0 {
+			if isAllIPv4(addresses) {
+				metadata.IPVersion = 4
+			} else if isAllIPv6(addresses) {
+				metadata.IPVersion = 6
+			}
+		}
 	}
 	return nil
+}
+
+func isAllIPv4(addresses []netip.Addr) bool {
+	for _, addr := range addresses {
+		if !addr.Is4() {
+			return false
+		}
+	}
+	return true
+}
+
+func isAllIPv6(addresses []netip.Addr) bool {
+	for _, addr := range addresses {
+		if !addr.Is6() {
+			return false
+		}
+	}
+	return true
 }

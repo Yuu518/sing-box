@@ -84,8 +84,8 @@ func (r *IPCIDRItem) Match(metadata *adapter.InboundContext) bool {
 	if metadata.Destination.IsIP() {
 		return r.ipSet.Contains(metadata.Destination.Addr)
 	}
-	if len(metadata.DestinationAddresses) > 0 {
-		return common.Any(metadata.DestinationAddresses, r.ipSet.Contains)
+	if addresses := metadata.MatchDestinationAddresses(); len(addresses) > 0 {
+		return common.Any(addresses, r.ipSet.Contains)
 	}
 	return metadata.IPCIDRAcceptEmpty
 }

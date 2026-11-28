@@ -293,7 +293,8 @@ UDP 连接超时时间。
   "disable_optimistic_cache": false,
   "rewrite_ttl": null,
   "timeout": "",
-  "client_subnet": null
+  "client_subnet": null,
+  "match_only": false
 }
 ```
 
@@ -344,3 +345,7 @@ DNS 解析策略，可用值有：`prefer_ipv4`、`prefer_ipv6`、`ipv4_only`、
 如果值是 IP 地址而不是前缀，则会自动附加 `/32` 或 `/128`。
 
 将覆盖 `dns.client_subnet`.
+
+#### match_only
+
+仅将解析得到的 IP 地址用于后续的 IP 规则匹配，不写入出站拨号目标地址；当未设置拨号地址时，TUN `PreMatch` 直通出站可复用该结果。

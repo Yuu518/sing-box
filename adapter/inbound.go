@@ -73,7 +73,8 @@ type InboundContext struct {
 
 	// cache
 
-	Domain string
+	CacheIPs []netip.Addr
+	Domain   string
 
 	// Deprecated: implement in rule action
 	InboundDetour             string
@@ -130,6 +131,13 @@ func (c *InboundContext) DomainHost() string {
 		return c.SniffHost
 	}
 	return c.Domain
+}
+
+func (c *InboundContext) MatchDestinationAddresses() []netip.Addr {
+	if len(c.CacheIPs) > 0 {
+		return c.CacheIPs
+	}
+	return c.DestinationAddresses
 }
 
 func (c *InboundContext) ResetRuleCache() {

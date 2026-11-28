@@ -57,8 +57,8 @@ func (r *PreferredByItem) Match(metadata *adapter.InboundContext) bool {
 			}
 		}
 	}
-	if len(metadata.DestinationAddresses) > 0 {
-		for _, address := range metadata.DestinationAddresses {
+	if addresses := metadata.MatchDestinationAddresses(); len(addresses) > 0 {
+		for _, address := range addresses {
 			for _, outbound := range r.outbounds {
 				if outbound.PreferredAddress(metadata, address) {
 					return true

@@ -303,7 +303,8 @@ Timeout for sniffing.
   "disable_optimistic_cache": false,
   "rewrite_ttl": null,
   "timeout": "",
-  "client_subnet": null
+  "client_subnet": null,
+  "match_only": false
 }
 ```
 
@@ -354,3 +355,7 @@ Append a `edns0-subnet` OPT extra record with the specified IP prefix to every q
 If value is an IP address instead of prefix, `/32` or `/128` will be appended automatically.
 
 Will override `dns.client_subnet`.
+
+#### match_only
+
+Only use resolved IP addresses for subsequent IP rule matching instead of overriding outbound dial addresses, while still allowing `PreMatch` flow outbounds to reuse them when no dial addresses are set.
