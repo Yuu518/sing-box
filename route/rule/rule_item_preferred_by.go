@@ -42,12 +42,7 @@ func (r *PreferredByItem) Start() error {
 }
 
 func (r *PreferredByItem) Match(metadata *adapter.InboundContext) bool {
-	var domainHost string
-	if metadata.Domain != "" {
-		domainHost = metadata.Domain
-	} else {
-		domainHost = metadata.Destination.Fqdn
-	}
+	domainHost := metadata.DomainHost()
 	if domainHost != "" {
 		for _, outbound := range r.outbounds {
 			if outbound.PreferredDomain(metadata, domainHost) {

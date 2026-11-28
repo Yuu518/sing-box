@@ -322,6 +322,7 @@ func (r *Router) routePacketConnection(ctx context.Context, conn N.PacketConn, m
 	if metadata.FakeIP {
 		conn = newFakeIPNATPacketConn(bufio.NewNetPacketConn(conn), metadata.OriginDestination, metadata.Destination)
 	}
+	onClose = r.wrapQUICSniffIdleCache(metadata, onClose)
 	ctx = interrupt.ContextWithIsExternalConnection(ctx, true)
 	onClose = registerInterrupt(chain, conn, onClose)
 	outbound := chain[len(chain)-1]
@@ -331,6 +332,31 @@ func (r *Router) routePacketConnection(ctx context.Context, conn N.PacketConn, m
 		r.connection.NewPacketConnection(ctx, outbound, conn, metadata, onClose)
 	}
 	return nil
+}
+
+func (r *Router) wrapQUICSniffIdleCache(metadata adapter.InboundContext, onClose N.CloseHandlerFunc) N.CloseHandlerFunc {
+	if metadata.Protocol != C.ProtocolQUIC || (metadata.SniffHost == "" && metadata.Client == "") {
+		return onClose
+	}
+	source := metadata.Source
+	destination := metadata.SniffDestination
+	if !destination.IsValid() {
+		if metadata.RouteOriginalDestination.IsValid() {
+			destination = metadata.RouteOriginalDestination
+		} else {
+			destination = metadata.Destination
+		}
+	}
+	entry := quicSniffEntry{
+		sniffHost: metadata.SniffHost,
+		client:    metadata.Client,
+	}
+	return func(err error) {
+		r.refreshQUICSniff(source, destination, entry)
+		if onClose != nil {
+			onClose(err)
+		}
+	}
 }
 
 func (r *Router) PreMatch(metadata adapter.InboundContext, firstPacket []byte) adapter.PreMatchResult {
@@ -381,12 +407,17 @@ func (r *Router) PreMatch(metadata adapter.InboundContext, firstPacket []byte) a
 				if errors.Is(sniffErr, sniff.ErrNeedMoreData) {
 					return continueResult
 				}
-				continue
+				if !r.restoreQUICSniff(ctx, &metadata, action.SnifferNames, firstPacket) {
+					continue
+				}
+				metadata.SniffError = nil
+			} else {
+				r.recordQUICSniff(&metadata)
 			}
-			if metadata.Domain != "" && metadata.Client != "" {
-				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", domain: ", metadata.Domain, ", client: ", metadata.Client)
-			} else if metadata.Domain != "" {
-				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", domain: ", metadata.Domain)
+			if metadata.SniffHost != "" && metadata.Client != "" {
+				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", domain: ", metadata.SniffHost, ", client: ", metadata.Client)
+			} else if metadata.SniffHost != "" {
+				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", domain: ", metadata.SniffHost)
 			} else if metadata.Client != "" {
 				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", client: ", metadata.Client)
 			} else {
@@ -531,11 +562,14 @@ func (r *Router) preMatchFlow(ctx context.Context, metadata *adapter.InboundCont
 	metadataCopy := *metadata
 	result.NewTracker = func() tun.FlowTracker {
 		r.logger.InfoContext(ctx, "pre-match: forward ", metadataCopy.Network, " connection from ", metadataCopy.Source, " to ", metadataCopy.Destination, " via outbound/", outbound.Type(), "[", outbound.Tag(), "]")
-		flowTrackers := make([]tun.FlowTracker, 0, len(r.trackers)+2)
+		flowTrackers := make([]tun.FlowTracker, 0, len(r.trackers)+3)
 		flowTrackers = append(flowTrackers, adapter.NewFlowLogger(ctx, r.logger))
 		flowInterrupter := newFlowInterrupter(chain)
 		if flowInterrupter != nil {
 			flowTrackers = append(flowTrackers, flowInterrupter)
+		}
+		if onClose := r.wrapQUICSniffIdleCache(metadataCopy, nil); onClose != nil {
+			flowTrackers = append(flowTrackers, &flowCloseCallback{onClose: N.OnceClose(onClose)})
 		}
 		for _, tracker := range r.trackers {
 			flowTracker := tracker.RoutedFlow(ctx, metadataCopy, matchedRule, outbound)
@@ -755,10 +789,10 @@ func (r *Router) actionSniff(
 		metadata.SnifferNames = action.SnifferNames
 		metadata.SniffError = err
 		if err == nil {
-			if metadata.Domain != "" && metadata.Client != "" {
-				r.logger.DebugContext(ctx, "sniffed protocol: ", metadata.Protocol, ", domain: ", metadata.Domain, ", client: ", metadata.Client)
-			} else if metadata.Domain != "" {
-				r.logger.DebugContext(ctx, "sniffed protocol: ", metadata.Protocol, ", domain: ", metadata.Domain)
+			if metadata.SniffHost != "" && metadata.Client != "" {
+				r.logger.DebugContext(ctx, "sniffed protocol: ", metadata.Protocol, ", domain: ", metadata.SniffHost, ", client: ", metadata.Client)
+			} else if metadata.SniffHost != "" {
+				r.logger.DebugContext(ctx, "sniffed protocol: ", metadata.Protocol, ", domain: ", metadata.SniffHost)
 			} else {
 				r.logger.DebugContext(ctx, "sniffed protocol: ", metadata.Protocol)
 			}
@@ -785,8 +819,10 @@ func (r *Router) actionSniff(
 			packetSniffers = defaultPacketSniffers
 		}
 		var err error
+		var sniffedPacket []byte
 		for _, packetBuffer := range inputPacketBuffers {
 			if quicMoreData() {
+				sniffedPacket = nil
 				err = sniff.PeekPacket(
 					ctx,
 					metadata,
@@ -794,9 +830,10 @@ func (r *Router) actionSniff(
 					sniff.QUICClientHello,
 				)
 			} else {
+				sniffedPacket = packetBuffer.Buffer.Bytes()
 				err = sniff.PeekPacket(
 					ctx, metadata,
-					packetBuffer.Buffer.Bytes(),
+					sniffedPacket,
 					packetSniffers...,
 				)
 			}
@@ -834,12 +871,14 @@ func (r *Router) actionSniff(
 			}
 			if err != nil {
 				sniffBuffer.Release()
+				sniffedPacket = nil
 				if !E.IsTimeout(err) {
 					fatalErr = err
 					return
 				}
 			} else {
 				if quicMoreData() {
+					sniffedPacket = nil
 					err = sniff.PeekPacket(
 						ctx,
 						metadata,
@@ -847,9 +886,10 @@ func (r *Router) actionSniff(
 						sniff.QUICClientHello,
 					)
 				} else {
+					sniffedPacket = sniffBuffer.Bytes()
 					err = sniff.PeekPacket(
 						ctx, metadata,
-						sniffBuffer.Bytes(),
+						sniffedPacket,
 						packetSniffers...,
 					)
 				}
@@ -871,10 +911,16 @@ func (r *Router) actionSniff(
 		}
 	finally:
 		if err == nil {
-			if metadata.Domain != "" && metadata.Client != "" {
-				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", domain: ", metadata.Domain, ", client: ", metadata.Client)
-			} else if metadata.Domain != "" {
-				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", domain: ", metadata.Domain)
+			r.recordQUICSniff(metadata)
+		} else if !errors.Is(err, sniff.ErrNeedMoreData) && len(sniffedPacket) > 0 && r.restoreQUICSniff(ctx, metadata, action.SnifferNames, sniffedPacket) {
+			err = nil
+			metadata.SniffError = nil
+		}
+		if err == nil {
+			if metadata.SniffHost != "" && metadata.Client != "" {
+				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", domain: ", metadata.SniffHost, ", client: ", metadata.Client)
+			} else if metadata.SniffHost != "" {
+				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", domain: ", metadata.SniffHost)
 			} else if metadata.Client != "" {
 				r.logger.DebugContext(ctx, "sniffed packet protocol: ", metadata.Protocol, ", client: ", metadata.Client)
 			} else {

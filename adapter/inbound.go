@@ -62,15 +62,18 @@ type InboundContext struct {
 
 	// sniffer
 
-	Protocol      string
-	Domain        string
-	ECHPublicName string
-	Client        string
-	SniffContext  any
-	SnifferNames  []string
-	SniffError    error
+	Protocol         string
+	SniffHost        string
+	ECHPublicName    string
+	Client           string
+	SniffContext     any
+	SnifferNames     []string
+	SniffError       error
+	SniffDestination M.Socksaddr
 
 	// cache
+
+	Domain string
 
 	// Deprecated: implement in rule action
 	InboundDetour             string
@@ -117,6 +120,16 @@ type InboundContext struct {
 	DestinationPortMatch         bool
 	DeferredIPCIDRMatchGroups    uint8
 	IgnoreDestinationIPCIDRMatch bool
+}
+
+func (c *InboundContext) DomainHost() string {
+	if c.Destination.IsDomain() {
+		return c.Destination.Fqdn
+	}
+	if c.SniffHost != "" {
+		return c.SniffHost
+	}
+	return c.Domain
 }
 
 func (c *InboundContext) ResetRuleCache() {

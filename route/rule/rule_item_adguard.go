@@ -26,12 +26,7 @@ func NewRawAdGuardDomainItem(matcher *domain.AdGuardMatcher) *AdGuardDomainItem 
 }
 
 func (r *AdGuardDomainItem) Match(metadata *adapter.InboundContext) bool {
-	var domainHost string
-	if metadata.Domain != "" {
-		domainHost = metadata.Domain
-	} else {
-		domainHost = metadata.Destination.Fqdn
-	}
+	domainHost := metadata.DomainHost()
 	if domainHost == "" {
 		return false
 	}

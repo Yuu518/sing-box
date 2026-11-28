@@ -17,7 +17,7 @@ func TestSniffHTTP1(t *testing.T) {
 	var metadata adapter.InboundContext
 	err := sniff.HTTPHost(context.Background(), &metadata, strings.NewReader(pkt))
 	require.NoError(t, err)
-	require.Equal(t, metadata.Domain, "www.google.com")
+	require.Equal(t, metadata.SniffHost, "www.google.com")
 }
 
 func TestSniffHTTP1WithPort(t *testing.T) {
@@ -26,5 +26,16 @@ func TestSniffHTTP1WithPort(t *testing.T) {
 	var metadata adapter.InboundContext
 	err := sniff.HTTPHost(context.Background(), &metadata, strings.NewReader(pkt))
 	require.NoError(t, err)
-	require.Equal(t, metadata.Domain, "www.gov.cn")
+	require.Equal(t, metadata.SniffHost, "www.gov.cn")
+}
+
+func TestSniffHTTP1WithIPHost(t *testing.T) {
+	t.Parallel()
+	for _, host := range []string{"1.1.1.1", "1.1.1.1:8080", "[2001:db8::1]:443"} {
+		pkt := "GET / HTTP/1.1\r\nHost: " + host + "\r\nAccept: */*\r\n\r\n"
+		var metadata adapter.InboundContext
+		err := sniff.HTTPHost(context.Background(), &metadata, strings.NewReader(pkt))
+		require.NoError(t, err)
+		require.Empty(t, metadata.SniffHost)
+	}
 }
